@@ -340,16 +340,13 @@ known periods and depths. It verifies:
 
 ---
 
-## Contributing
+## Documentation
 
-This project is designed for students. See
-[CONTRIBUTING.md](CONTRIBUTING.md) for:
-
-- Setup instructions and development workflow
-- Code conventions (type hints, Google-style docstrings, structured logging)
-- Commit message format (Conventional Commits)
-- Open contribution areas organized by difficulty level (beginner /
-  intermediate / advanced)
+| Document | Audience | Contents |
+|----------|----------|----------|
+| [THEORY.md](THEORY.md) | Students new to astronomy | Transit method, TESS mission, BLS algorithm, noise sources, validation criteria, TOI-700 system, further reading |
+| [METHODOLOGY.md](METHODOLOGY.md) | Developers | Pipeline stages, algorithms, data structures, configuration reference, dashboard callback chain, testing strategy |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Contributors | Setup, code conventions, commit format, open contribution areas by difficulty |
 
 ---
 
