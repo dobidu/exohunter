@@ -32,7 +32,6 @@ def make_navbar() -> dbc.Navbar:
             ),
             dbc.Nav([
                 dbc.NavItem(dbc.NavLink("Dashboard", href="/", active=True)),
-                dbc.NavItem(dbc.NavLink("About", href="#about")),
             ], navbar=True),
         ]),
         color="primary",
@@ -100,10 +99,10 @@ def make_sidebar() -> dbc.Card:
 
             html.Hr(),
 
-            # Pipeline progress indicator
-            html.Label("Pipeline Status", className="fw-bold mb-1"),
+            # Pipeline status indicator
+            html.Label("Data Source", className="fw-bold mb-1"),
             html.Div(id="pipeline-status", children=[
-                dbc.Badge("Ready", color="info", className="me-1"),
+                dbc.Badge("Demo — TOI-700", color="info", className="me-1"),
             ]),
         ]),
     ], className="h-100")
@@ -114,27 +113,43 @@ def make_main_content() -> html.Div:
     return html.Div([
         # Panel 1 — Sky Map
         dbc.Card([
-            dbc.CardHeader("Sky Map — Target Overview"),
+            dbc.CardHeader("Panel 1 — Sky Map"),
             dbc.CardBody(dcc.Graph(id="sky-map", style={"height": "500px"})),
         ], className="mb-3"),
 
         # Panel 2 — Light Curve
         dbc.Card([
             dbc.CardHeader([
-                "Light Curve",
-                dbc.Switch(
-                    id="show-model-toggle",
-                    label="Show Transit Model",
-                    value=True,
-                    className="float-end",
-                ),
+                "Panel 2 — Light Curve",
+                html.Div([
+                    dbc.Switch(
+                        id="show-model-toggle",
+                        label="Show Transit Model",
+                        value=True,
+                        className="d-inline-block me-3",
+                    ),
+                    # Candidate selector — populated dynamically when a
+                    # target has multiple transit candidates
+                    dcc.Dropdown(
+                        id="candidate-selector",
+                        placeholder="Select candidate...",
+                        clearable=False,
+                        style={
+                            "width": "220px",
+                            "display": "inline-block",
+                            "verticalAlign": "middle",
+                            "backgroundColor": "rgb(50, 50, 50)",
+                            "color": "white",
+                        },
+                    ),
+                ], className="float-end d-flex align-items-center gap-2"),
             ]),
             dbc.CardBody(dcc.Graph(id="lightcurve-plot", style={"height": "450px"})),
         ], className="mb-3"),
 
         # Panel 3 — Phase Diagram
         dbc.Card([
-            dbc.CardHeader("Phase-Folded Light Curve"),
+            dbc.CardHeader("Panel 3 — Phase-Folded Light Curve"),
             dbc.CardBody(dcc.Graph(id="phase-plot", style={"height": "400px"})),
         ], className="mb-3"),
     ])
@@ -149,6 +164,7 @@ def make_candidate_table() -> dbc.Card:
                 id="candidate-table",
                 columns=[
                     {"name": "TIC ID", "id": "tic_id"},
+                    {"name": "Planet", "id": "name"},
                     {"name": "Period (d)", "id": "period", "type": "numeric",
                      "format": dash_table.Format.Format(precision=4)},
                     {"name": "Epoch (BTJD)", "id": "epoch", "type": "numeric",
@@ -195,8 +211,12 @@ def make_candidate_table() -> dbc.Card:
     ], className="mb-3")
 
 
-def make_layout() -> dbc.Container:
+def make_layout(pipeline_data: dict | None = None) -> dbc.Container:
     """Assemble the complete dashboard layout.
+
+    Args:
+        pipeline_data: Optional initial data for the pipeline-data Store.
+            If provided, all panels will render immediately on page load.
 
     Returns:
         A ``dbc.Container`` with all components arranged in the
@@ -205,9 +225,10 @@ def make_layout() -> dbc.Container:
     return dbc.Container([
         make_navbar(),
 
-        # Hidden store for pipeline data (shared between callbacks)
-        dcc.Store(id="pipeline-data", data={}),
+        # Hidden stores for shared state between callbacks
+        dcc.Store(id="pipeline-data", data=pipeline_data or {}),
         dcc.Store(id="selected-target", data=None),
+        dcc.Store(id="selected-candidate-idx", data=0),
 
         dbc.Row([
             # Sidebar

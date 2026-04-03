@@ -47,6 +47,7 @@ class TransitCandidate:
         snr: Signal-to-noise ratio of the detection.
         bls_power: Peak BLS power spectrum value.
         n_transits: Number of individual transit events observed.
+        name: Optional human-readable name (e.g. ``"TOI-700 d"``).
     """
 
     tic_id: str
@@ -57,6 +58,7 @@ class TransitCandidate:
     snr: float
     bls_power: float
     n_transits: int = 0
+    name: str = ""
 
 
 @timing

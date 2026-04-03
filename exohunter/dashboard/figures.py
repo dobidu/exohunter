@@ -52,40 +52,50 @@ def make_sky_map(
         tic_ids: TIC IDs for hover labels.
         statuses: Status per target: ``"processed"``, ``"candidate"``,
             ``"validated"``, or ``"rejected"``.
-        magnitudes: Optional TESS magnitudes for hover info.
+        magnitudes: Optional TESS magnitudes for hover info and marker sizing.
 
     Returns:
         A Plotly ``Figure`` with colour-coded targets.
     """
     color_map = {
-        "processed": "gray",
+        "processed": "rgba(150, 150, 150, 0.5)",
         "candidate": "gold",
         "validated": "limegreen",
         "rejected": "tomato",
     }
+    # Validated targets are drawn larger so they stand out
+    size_map = {
+        "processed": 5,
+        "candidate": 8,
+        "validated": 12,
+        "rejected": 7,
+    }
 
     fig = go.Figure()
 
-    for status in ["processed", "candidate", "validated", "rejected"]:
+    # Draw in order so validated targets appear on top
+    for status in ["processed", "rejected", "candidate", "validated"]:
         mask = [s == status for s in statuses]
         if not any(mask):
             continue
 
         indices = [i for i, m in enumerate(mask) if m]
-        hover_text = [
-            f"{tic_ids[i]}<br>RA={ra[i]:.4f}° Dec={dec[i]:.4f}°"
-            + (f"<br>Tmag={magnitudes[i]:.1f}" if magnitudes is not None else "")
-            for i in indices
-        ]
+        hover_text = []
+        for i in indices:
+            text = f"<b>{tic_ids[i]}</b><br>RA={ra[i]:.4f}°  Dec={dec[i]:.4f}°"
+            if magnitudes is not None:
+                text += f"<br>Tmag={magnitudes[i]:.1f}"
+            hover_text.append(text)
 
         fig.add_trace(go.Scattergl(
             x=[ra[i] for i in indices],
             y=[dec[i] for i in indices],
             mode="markers",
             marker=dict(
-                size=6,
-                color=color_map[status],
-                opacity=0.8,
+                size=size_map.get(status, 6),
+                color=color_map.get(status, "gray"),
+                opacity=0.9,
+                line=dict(width=1, color="white") if status == "validated" else dict(width=0),
             ),
             name=status.capitalize(),
             text=hover_text,
@@ -94,11 +104,18 @@ def make_sky_map(
         ))
 
     fig.update_layout(
-        title="Sky Map — Processed Targets",
+        title="Sky Map — TESS Observation Field",
         xaxis_title="Right Ascension (°)",
         yaxis_title="Declination (°)",
         xaxis=dict(autorange="reversed"),  # RA increases right-to-left
         height=500,
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1,
+        ),
     )
 
     return _apply_dark_style(fig)
@@ -156,13 +173,17 @@ def make_lightcurve_plot(
             name=f"Model (P={candidate.period:.3f} d)",
         ))
 
-        # Highlight transit windows with vertical bands
-        t_start = time[0]
-        t_end = time[-1]
-        transit_times = np.arange(
-            candidate.epoch, t_end, candidate.period
-        )
-        for t0 in transit_times:
+        # Highlight transit windows with vertical bands.
+        # Generate transit times in BOTH directions from the epoch
+        # so we cover the full observation span.
+        t_start = float(time[0])
+        t_end = float(time[-1])
+
+        transit_times_forward = np.arange(candidate.epoch, t_end + candidate.period, candidate.period)
+        transit_times_backward = np.arange(candidate.epoch - candidate.period, t_start - candidate.period, -candidate.period)
+        all_transit_times = np.concatenate([transit_times_backward, transit_times_forward])
+
+        for t0 in all_transit_times:
             if t_start <= t0 <= t_end:
                 fig.add_vrect(
                     x0=t0 - candidate.duration / 2,
@@ -172,11 +193,16 @@ def make_lightcurve_plot(
                     layer="below",
                 )
 
+    title = "Light Curve"
+    if candidate is not None:
+        display_name = candidate.name or candidate.tic_id
+        title = f"Light Curve — {display_name}"
+
     fig.update_layout(
-        title="Light Curve",
+        title=title,
         xaxis_title="Time (BTJD)",
         yaxis_title="Normalized Flux",
-        height=400,
+        height=450,
         xaxis_rangeslider_visible=True,
     )
 
@@ -219,7 +245,7 @@ def make_phase_plot(
         x=phase,
         y=flux_folded,
         mode="markers",
-        marker=dict(size=1.5, color="rgba(100,149,237,0.2)"),
+        marker=dict(size=1.5, color="rgba(100,149,237,0.15)"),
         name="Phase-folded data",
     ))
 
@@ -247,6 +273,7 @@ def make_phase_plot(
             f"Phase-Folded Light Curve — "
             f"P={candidate.period:.4f} d, "
             f"depth={candidate.depth * 100:.3f}%, "
+            f"duration={candidate.duration * 24:.1f} h, "
             f"SNR={candidate.snr:.1f}"
         ),
         xaxis_title="Orbital Phase",

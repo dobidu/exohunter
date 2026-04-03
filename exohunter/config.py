@@ -99,6 +99,13 @@ DASHBOARD_HOST: str = "127.0.0.1"
 DASHBOARD_PORT: int = 8050
 DASHBOARD_DEBUG: bool = True
 
+# Data source for the dashboard when launched without explicit flags.
+# Options:
+#   "demo"  — load synthetic TOI-700 demonstration data (default)
+#   "csv"   — load candidates from data/output/candidates.csv
+#   "none"  — start with an empty dashboard
+DASHBOARD_DATA_SOURCE: str = "demo"
+
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------

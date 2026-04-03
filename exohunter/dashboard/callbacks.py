@@ -5,10 +5,11 @@ to updates in the dashboard visualizations.
 
 Data flow:
     1. On page load, ``pipeline-data`` store is populated with demo data.
-    2. Filters update the candidate table.
+    2. Filters and pipeline-data together populate the candidate table.
     3. Clicking a row in the table (or a point on the sky map) selects
-       a target and updates the light curve and phase plots.
-    4. The export button triggers a CSV download.
+       a target and populates the candidate selector dropdown.
+    4. The selected candidate updates the light curve and phase plots.
+    5. The export button triggers a CSV download.
 """
 
 from __future__ import annotations
@@ -26,9 +27,40 @@ from exohunter.dashboard.figures import (
     make_phase_plot,
     make_sky_map,
 )
+from exohunter.detection.bls import TransitCandidate
 from exohunter.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+def _candidate_from_dict(data: dict) -> TransitCandidate:
+    """Reconstruct a ``TransitCandidate`` from a JSON-serializable dict.
+
+    Centralises the dict-to-dataclass conversion that was previously
+    duplicated across multiple callbacks.
+    """
+    return TransitCandidate(
+        tic_id=data["tic_id"],
+        period=data["period"],
+        epoch=data["epoch"],
+        duration=data["duration"],
+        depth=data["depth"],
+        snr=data["snr"],
+        bls_power=data.get("bls_power", 0),
+        n_transits=data.get("n_transits", 0),
+        name=data.get("name", ""),
+    )
+
+
+def _candidates_for_target(
+    tic_id: str,
+    pipeline_data: dict[str, Any],
+) -> list[dict]:
+    """Return all candidate dicts matching a given TIC ID."""
+    return [
+        c for c in pipeline_data.get("candidates", [])
+        if c.get("tic_id") == tic_id
+    ]
 
 
 def register_callbacks(app: Dash) -> None:
@@ -38,12 +70,16 @@ def register_callbacks(app: Dash) -> None:
         app: The Dash application.
     """
 
+    # ------------------------------------------------------------------
+    # Candidate table — now also triggered by pipeline-data to
+    # auto-populate on page load (Bug #1 fix).
+    # ------------------------------------------------------------------
     @app.callback(
         Output("candidate-table", "data"),
         Input("period-range", "value"),
         Input("min-snr", "value"),
         Input("status-filter", "value"),
-        State("pipeline-data", "data"),
+        Input("pipeline-data", "data"),
     )
     def update_candidate_table(
         period_range: list[float],
@@ -71,17 +107,21 @@ def register_callbacks(app: Dash) -> None:
 
             filtered.append({
                 "tic_id": c.get("tic_id", ""),
+                "name": c.get("name", ""),
                 "period": c.get("period", 0),
                 "epoch": c.get("epoch", 0),
                 "duration": c.get("duration", 0),
                 "depth_pct": c.get("depth", 0) * 100,
                 "snr": c.get("snr", 0),
-                "status": c.get("status", "Candidate"),
+                "status": c.get("status", "Candidate").capitalize(),
                 "flags": c.get("flags", ""),
             })
 
         return filtered
 
+    # ------------------------------------------------------------------
+    # Sky map — renders once when pipeline-data arrives.
+    # ------------------------------------------------------------------
     @app.callback(
         Output("sky-map", "figure"),
         Input("pipeline-data", "data"),
@@ -97,8 +137,15 @@ def register_callbacks(app: Dash) -> None:
         tic_ids = [t.get("tic_id", "") for t in targets]
         statuses = [t.get("status", "processed") for t in targets]
 
-        return make_sky_map(ra, dec, tic_ids, statuses)
+        magnitudes = None
+        if all("tmag" in t for t in targets):
+            magnitudes = np.array([t["tmag"] for t in targets])
 
+        return make_sky_map(ra, dec, tic_ids, statuses, magnitudes=magnitudes)
+
+    # ------------------------------------------------------------------
+    # Target selection — from table click or sky map click.
+    # ------------------------------------------------------------------
     @app.callback(
         Output("selected-target", "data"),
         Input("candidate-table", "selected_rows"),
@@ -130,18 +177,56 @@ def register_callbacks(app: Dash) -> None:
 
         return no_update
 
+    # ------------------------------------------------------------------
+    # Candidate selector dropdown — populates when a target is selected.
+    # Shows all candidates for that target (multi-planet support).
+    # ------------------------------------------------------------------
+    @app.callback(
+        Output("candidate-selector", "options"),
+        Output("candidate-selector", "value"),
+        Input("selected-target", "data"),
+        State("pipeline-data", "data"),
+    )
+    def update_candidate_selector(
+        selected_tic: str | None,
+        pipeline_data: dict[str, Any],
+    ) -> tuple[list[dict], str | None]:
+        """Populate the candidate dropdown for the selected target."""
+        if not selected_tic:
+            return [], None
+
+        target_candidates = _candidates_for_target(selected_tic, pipeline_data)
+        if not target_candidates:
+            return [], None
+
+        options = []
+        for i, c in enumerate(target_candidates):
+            label = c.get("name", "")
+            if not label:
+                label = f"P={c['period']:.3f} d"
+            label += f"  (depth={c['depth'] * 100:.3f}%, SNR={c['snr']:.1f})"
+            options.append({"label": label, "value": i})
+
+        # Default to the first candidate
+        return options, 0
+
+    # ------------------------------------------------------------------
+    # Light curve plot — updates on target, candidate, or model toggle.
+    # ------------------------------------------------------------------
     @app.callback(
         Output("lightcurve-plot", "figure"),
         Input("selected-target", "data"),
+        Input("candidate-selector", "value"),
         Input("show-model-toggle", "value"),
         State("pipeline-data", "data"),
     )
     def update_lightcurve(
         selected_tic: str | None,
+        candidate_idx: int | None,
         show_model: bool,
         pipeline_data: dict[str, Any],
     ) -> Any:
-        """Update the light curve plot for the selected target."""
+        """Update the light curve plot for the selected target and candidate."""
         if not selected_tic:
             return make_empty_figure("Select a target to view its light curve")
 
@@ -152,27 +237,15 @@ def register_callbacks(app: Dash) -> None:
         time = np.array(lc_data["time"])
         flux = np.array(lc_data["flux"])
 
-        # Find the candidate for this target
-        candidate_data = None
-        if show_model:
-            for c in pipeline_data.get("candidates", []):
-                if c.get("tic_id") == selected_tic:
-                    candidate_data = c
-                    break
-
-        # Build a minimal TransitCandidate for the figure function
+        # Resolve the selected candidate (if any).
+        # Guard against stale index from a previous target with more candidates.
         candidate = None
-        if candidate_data:
-            from exohunter.detection.bls import TransitCandidate
-            candidate = TransitCandidate(
-                tic_id=candidate_data["tic_id"],
-                period=candidate_data["period"],
-                epoch=candidate_data["epoch"],
-                duration=candidate_data["duration"],
-                depth=candidate_data["depth"],
-                snr=candidate_data["snr"],
-                bls_power=candidate_data.get("bls_power", 0),
-            )
+        if show_model:
+            target_candidates = _candidates_for_target(selected_tic, pipeline_data)
+            if target_candidates:
+                if candidate_idx is None or candidate_idx >= len(target_candidates):
+                    candidate_idx = 0
+                candidate = _candidate_from_dict(target_candidates[candidate_idx])
 
         return make_lightcurve_plot(
             time=time,
@@ -182,16 +255,21 @@ def register_callbacks(app: Dash) -> None:
             show_model=show_model,
         )
 
+    # ------------------------------------------------------------------
+    # Phase-folded plot — updates on target or candidate selection.
+    # ------------------------------------------------------------------
     @app.callback(
         Output("phase-plot", "figure"),
         Input("selected-target", "data"),
+        Input("candidate-selector", "value"),
         State("pipeline-data", "data"),
     )
     def update_phase_plot(
         selected_tic: str | None,
+        candidate_idx: int | None,
         pipeline_data: dict[str, Any],
     ) -> Any:
-        """Update the phase-folded plot for the selected target."""
+        """Update the phase-folded plot for the selected target and candidate."""
         if not selected_tic:
             return make_empty_figure("Select a target to view its phase diagram")
 
@@ -199,32 +277,24 @@ def register_callbacks(app: Dash) -> None:
         if not lc_data:
             return make_empty_figure(f"No data for {selected_tic}")
 
-        # Find the candidate
-        candidate_data = None
-        for c in pipeline_data.get("candidates", []):
-            if c.get("tic_id") == selected_tic:
-                candidate_data = c
-                break
-
-        if not candidate_data:
+        target_candidates = _candidates_for_target(selected_tic, pipeline_data)
+        if not target_candidates:
             return make_empty_figure(f"No transit candidate for {selected_tic}")
 
-        from exohunter.detection.bls import TransitCandidate
-        candidate = TransitCandidate(
-            tic_id=candidate_data["tic_id"],
-            period=candidate_data["period"],
-            epoch=candidate_data["epoch"],
-            duration=candidate_data["duration"],
-            depth=candidate_data["depth"],
-            snr=candidate_data["snr"],
-            bls_power=candidate_data.get("bls_power", 0),
-        )
+        if candidate_idx is None:
+            candidate_idx = 0
+        if candidate_idx >= len(target_candidates):
+            candidate_idx = 0
 
+        candidate = _candidate_from_dict(target_candidates[candidate_idx])
         time = np.array(lc_data["time"])
         flux = np.array(lc_data["flux"])
 
         return make_phase_plot(time, flux, candidate)
 
+    # ------------------------------------------------------------------
+    # CSV export — downloads current table contents.
+    # ------------------------------------------------------------------
     @app.callback(
         Output("export-download", "data"),
         Input("export-btn", "n_clicks"),

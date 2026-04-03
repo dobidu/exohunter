@@ -57,27 +57,23 @@ def transit_model(
     """
     # Phase-fold and centre the transit at phase = 0
     phase = ((time - epoch + period / 2) % period - period / 2)
+    abs_phase = np.abs(phase)
 
     half_duration = duration / 2.0
     ingress_time = duration * ingress_fraction
 
+    # Start with out-of-transit flux (1.0 everywhere)
     model_flux = np.ones_like(time)
 
-    for i in range(len(time)):
-        abs_phase = abs(phase[i])
+    # Flat bottom region: fully in transit
+    flat_mask = abs_phase < (half_duration - ingress_time)
+    model_flux[flat_mask] = 1.0 - depth
 
-        if abs_phase > half_duration:
-            # Out of transit
-            model_flux[i] = 1.0
-
-        elif abs_phase < half_duration - ingress_time:
-            # Full transit (flat bottom)
-            model_flux[i] = 1.0 - depth
-
-        else:
-            # Ingress or egress — linear interpolation
-            fraction = (half_duration - abs_phase) / ingress_time
-            model_flux[i] = 1.0 - depth * fraction
+    # Ingress/egress region: linear interpolation between 1.0 and 1.0-depth
+    ingress_mask = (abs_phase >= (half_duration - ingress_time)) & (abs_phase <= half_duration)
+    if ingress_time > 0:
+        fraction = (half_duration - abs_phase[ingress_mask]) / ingress_time
+        model_flux[ingress_mask] = 1.0 - depth * fraction
 
     return model_flux
 

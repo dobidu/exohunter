@@ -42,38 +42,13 @@ def create_app(pipeline_data: dict | None = None) -> dash.Dash:
         suppress_callback_exceptions=True,
     )
 
-    # Set the layout
-    layout = make_layout()
-
-    # If pipeline data is provided, inject it into the Store component
-    if pipeline_data is not None:
-        # We need to modify the Store's data after layout creation.
-        # Dash's Store component accepts initial data via the `data` prop,
-        # but since make_layout() already created it, we wrap the layout
-        # in a callback that fires on page load.
-        app.layout = layout
-        _inject_pipeline_data(app, pipeline_data)
-    else:
-        app.layout = layout
+    # Pass pipeline data directly to the layout so the Store component
+    # is initialised with the data at construction time.  This is simpler
+    # and more reliable than injecting data via a callback.
+    app.layout = make_layout(pipeline_data=pipeline_data)
 
     # Register all interactive callbacks
     register_callbacks(app)
 
     logger.info("Dashboard application created successfully")
     return app
-
-
-def _inject_pipeline_data(app: dash.Dash, data: dict) -> None:
-    """Inject pipeline data into the Store component on page load.
-
-    This uses a clientside callback triggered by the URL pathname
-    to set the initial data without needing a server roundtrip.
-    """
-    from dash import Input, Output
-
-    @app.callback(
-        Output("pipeline-data", "data"),
-        Input("pipeline-data", "id"),  # Fires once on page load
-    )
-    def load_initial_data(_: str) -> dict:
-        return data
