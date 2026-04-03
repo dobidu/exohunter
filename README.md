@@ -18,16 +18,17 @@ enormous datasets where these dips hide in noise.
 
 **ExoHunter** automates the search. It downloads TESS light curves,
 cleans them, runs the Box Least Squares (BLS) algorithm to find periodic
-dips, validates candidates against astrophysical criteria, and presents
-everything in an interactive dashboard.
+dips, validates candidates against astrophysical criteria, cross-matches
+against the ExoFOP-TESS catalog of known TOIs, and presents everything
+in an interactive dashboard that highlights uncatalogued candidates.
 
 The project serves a dual purpose:
 
 - **Scientific tool** — a functional pipeline that can recover known
   exoplanets (tested on TOI-700, a system with a rocky planet in the
-  habitable zone).
+  habitable zone) and flag new candidates not in any catalog.
 - **Teaching resource** — a documented, well-structured codebase for a
-  study group of Computer Science undergraduates at 
+  study group of Computer Science undergraduates at
   [UFPB](https://www.ci.ufpb.br/) (Universidade Federal da Paraiba),
   focused on concurrent programming and scientific software development.
 
@@ -40,52 +41,57 @@ The project serves a dual purpose:
         |
         v
   +--------------------------+
-  |  1. INGESTION            |   ThreadPoolExecutor
-  |  Download light curves   |   8 concurrent threads (I/O-bound)
-  |  from TESS via lightkurve|   Retry + local FITS cache
+  |  1. INGESTION            |   ThreadPoolExecutor (8 threads)
+  |  Download light curves   |   Retry with exponential backoff
+  |  from TESS via lightkurve|   Local FITS cache (astropy Table I/O)
   +-----------+--------------+
               |
               v
   +--------------------------+
-  |  2. PREPROCESSING        |   ProcessPoolExecutor
-  |  Remove NaNs & outliers  |   N-1 CPU cores (CPU-bound)
-  |  Normalize (median -> 1) |
-  |  Flatten (Savitzky-Golay)|
+  |  2. PREPROCESSING        |   ProcessPoolExecutor (N-1 cores)
+  |  Remove NaNs & outliers  |   Sigma-clipping, Savitzky-Golay
+  |  Normalize (median -> 1) |   CDPP noise estimation
+  |  Flatten stellar var.    |
   +-----------+--------------+
               |
               v
   +--------------------------+
-  |  3. DETECTION            |   Numba @njit(parallel=True)
-  |  BLS periodogram search  |   SIMD-accelerated inner loop
-  |  6-criterion validation  |
+  |  3. DETECTION            |   Two BLS implementations:
+  |  BLS periodogram search  |   - lightkurve/astropy (C, production)
+  |  6-criterion validation  |   - Numba prefix-sum (5.8x faster)
   |  Transit model fitting   |
   +-----------+--------------+
               |
               v
   +--------------------------+
-  |  4. CATALOG              |
-  |  Store candidates        |
-  |  Cross-match with known  |
-  |  planets, export CSV     |
+  |  4. CATALOG              |   ExoFOP-TESS cross-matching
+  |  4-tier classification   |   Candidate scoring & ranking
+  |  Cross-match 7,900+ TOIs |   CSV/FITS export
   +-----------+--------------+
               |
               v
   +--------------------------+
   |  5. DASHBOARD            |   Plotly Dash (DARKLY theme)
-  |  Sky map (RA/Dec)        |
-  |  Interactive light curve |
-  |  Phase-folded diagram    |
-  |  Candidate table         |
+  |  Sector selector         |   Classification filters
+  |  Sky map + light curve   |   New-candidate highlights
+  |  Phase diagram + table   |   Multi-planet support
   +--------------------------+
 ```
 
-### Concurrency model at a glance
+### Concurrency model
 
 | Stage | Bottleneck | Strategy | Why |
 |-------|-----------|----------|-----|
 | Download | Network latency | `ThreadPoolExecutor` | Threads release the GIL during I/O waits |
 | Preprocessing | CPU (SG filter) | `ProcessPoolExecutor` | Separate processes bypass the GIL |
-| BLS search | CPU (nested loops) | `numba.prange` | JIT-compiled, SIMD-vectorized parallelism |
+| BLS search | CPU (nested loops) | `numba.prange` | JIT-compiled parallel loop over period grid |
+
+### BLS performance
+
+| Implementation | 10k periods, 20k cadences | Notes |
+|---|---|---|
+| Numba (prefix-sum bins) | **0.20 s** | Binned cumulative sums, O(n_periods × n_bins) |
+| lightkurve/astropy (C) | 1.19 s | Production baseline |
 
 ---
 
@@ -99,23 +105,27 @@ The project serves a dual purpose:
 ### Steps
 
 ```bash
-# Clone the repository
 git clone https://github.com/dobidu/exohunter.git
 cd exohunter
 
-# Create and activate a virtual environment
 python -m venv venv
 source venv/bin/activate    # Linux / macOS
 # venv\Scripts\activate     # Windows (PowerShell)
 
-# Install with development dependencies
 pip install -e ".[dev]"
-
-# Verify the installation
-pytest
+pytest                       # 28 tests, all offline
 ```
 
-All 28 tests should pass without internet access.
+### Download the TOI catalog (optional, for cross-matching)
+
+```bash
+python -m exohunter.catalog.crossmatch --update
+```
+
+Downloads ~7,900 TOIs from
+[ExoFOP-TESS](https://exofop.ipac.caltech.edu/tess/) to
+`data/catalogs/toi_catalog.csv`. Without it, cross-matching uses a
+small built-in reference table (TOI-700, L 98-59).
 
 ---
 
@@ -138,39 +148,91 @@ interactive HTML plots to `data/output/`.
 ### 2. Launch the interactive dashboard
 
 ```bash
-# Synthetic demo data (no internet needed)
-python scripts/run_dashboard.py --demo
-
-# Or with real pipeline results
-python scripts/run_dashboard.py
+python scripts/run_dashboard.py          # defaults to demo (TOI-700)
+python scripts/run_dashboard.py --empty  # start empty
 ```
 
 Open [http://localhost:8050](http://localhost:8050) in your browser.
 
-The dashboard has three linked panels:
+The dashboard features:
 
-| Panel | Shows | Interaction |
-|-------|-------|-------------|
-| **Sky map** | All processed targets in RA/Dec | Click a star to select it |
-| **Light curve** | Time series with transit model overlay | Range slider, model toggle |
-| **Phase diagram** | Phase-folded data at the detected period | Binned data + model fit |
+| Component | Description |
+|-----------|-------------|
+| **Data source selector** | Switch between TOI-700 demo and batch sector results |
+| **New candidates panel** | Highlighted list of uncatalogued candidates (bright green) |
+| **Sky map** | All targets in RA/Dec, color-coded by classification |
+| **Light curve** | Time series with transit model overlay and range slider |
+| **Phase diagram** | Phase-folded data with binned means and model fit |
+| **Candidate table** | Sortable, filterable table with classification badges |
+| **Classification filter** | Toggle NEW_CANDIDATE, KNOWN_MATCH, KNOWN_TOI, HARMONIC |
+| **Multi-planet support** | Dropdown to switch between candidates for the same star |
 
-Plus a filterable, sortable candidate table with CSV export.
-
-### 3. Run the CLI pipeline
+### 3. Batch process an entire TESS sector
 
 ```bash
-# Single target by TIC ID
+# Process sector 56 — stars with TESS magnitude 10–14
+python scripts/run_batch.py --sector 56
+
+# Test with a small subset
+python scripts/run_batch.py --sector 56 --limit 20
+
+# Custom magnitude range and period search
+python scripts/run_batch.py --sector 56 --mag-min 9 --mag-max 12 --max-period 30
+```
+
+The batch script:
+1. Queries MAST for all 2-min cadence targets in the sector
+2. Filters by TESS magnitude via the TIC catalog (default: 10–14 Tmag)
+3. Downloads concurrently with `ThreadPoolExecutor` (cached after first run)
+4. Preprocesses, runs BLS, validates, cross-matches each target
+5. Prints a summary with status breakdown and top 10 candidates by SNR
+6. Saves results to `data/results/sector_XX.csv`
+
+Results are automatically available in the dashboard via the data source
+selector — no restart needed.
+
+### 4. Single-target CLI
+
+```bash
 python scripts/run_pipeline.py --tic "TIC 150428135"
-
-# Batch: first 10 targets from TESS sector 1
-python scripts/run_pipeline.py --sector 1 --limit 10
-
-# Custom period range (default: 0.5–20 days)
 python scripts/run_pipeline.py --tic "TIC 150428135" --min-period 1.0 --max-period 40.0
 ```
 
-Results are saved to `data/output/candidates.csv`.
+---
+
+## Cross-matching and candidate classification
+
+Every validated candidate is compared against the
+[ExoFOP-TESS](https://exofop.ipac.caltech.edu/tess/) TOI catalog
+and classified into one of four tiers:
+
+| Classification | Meaning | Dashboard color |
+|---|---|---|
+| **NEW_CANDIDATE** | TIC ID not in any catalog — potential new exoplanet | Bright green |
+| **KNOWN_MATCH** | TIC ID and period match a known TOI — re-detection | Blue |
+| **KNOWN_TOI** | TIC is a known TOI but at a different period | Yellow |
+| **HARMONIC** | Period is 2×, 3×, 0.5×, or 1/3× of a known TOI | Orange |
+
+`NEW_CANDIDATE` is the most exciting — it means ExoHunter found a
+periodic signal in a star that has no catalogued TOI, making it a
+potential undiscovered exoplanet.
+
+### Candidate scoring
+
+Candidates are ranked by a priority score for visual inspection:
+
+```
+score = SNR × v_shape_factor × depth_factor
+```
+
+| Factor | Value | Condition |
+|--------|-------|-----------|
+| `v_shape_factor` | 1.0 | Transit is box-like (V-shape metric < 0.5) |
+| `v_shape_factor` | 0.5 | Transit is V-shaped (possible eclipsing binary) |
+| `depth_factor` | 1.0 | Transit depth < 2% (plausible planet) |
+| `depth_factor` | 0.7 | Transit depth >= 2% (possible binary/blend) |
+
+The top 20 candidates by score are the most promising for follow-up.
 
 ---
 
@@ -181,8 +243,8 @@ exohunter/
 ├── config.py                    # Paths, physical constants, default parameters
 │
 ├── ingestion/                   # Layer 1: Data acquisition
-│   ├── downloader.py            #   Concurrent TESS downloads (lightkurve + threads)
-│   └── cache.py                 #   Local FITS cache to avoid re-downloads
+│   ├── downloader.py            #   Concurrent TESS downloads (MAST API + threads)
+│   └── cache.py                 #   Local FITS cache (astropy Table roundtrip)
 │
 ├── preprocessing/               # Layer 2: Signal cleaning
 │   ├── pipeline.py              #   Orchestrator (ProcessPoolExecutor)
@@ -191,19 +253,19 @@ exohunter/
 │   └── detrend.py               #   Savitzky-Golay flattening
 │
 ├── detection/                   # Layer 3: Transit search
-│   ├── bls.py                   #   BLS via lightkurve + Numba from-scratch
+│   ├── bls.py                   #   BLS: lightkurve (C) + Numba (prefix-sum)
 │   ├── validator.py             #   6-criterion candidate validation
 │   └── model.py                 #   Trapezoidal transit model, phase-folding
 │
 ├── catalog/                     # Layer 4: Results management
-│   ├── candidates.py            #   In-memory catalog with filtering
-│   ├── crossmatch.py            #   Match against known exoplanets
+│   ├── candidates.py            #   Catalog with scoring and ranking
+│   ├── crossmatch.py            #   ExoFOP-TESS 4-tier classification
 │   └── export.py                #   CSV and FITS export
 │
 ├── dashboard/                   # Layer 5: Visualization
 │   ├── app.py                   #   Dash application factory
-│   ├── layouts.py               #   Bootstrap DARKLY layout
-│   ├── callbacks.py             #   Interactive callback logic
+│   ├── layouts.py               #   DARKLY layout with sector selector
+│   ├── callbacks.py             #   Interactive callbacks + data loading
 │   └── figures.py               #   Plotly figure generators
 │
 └── utils/                       # Shared infrastructure
@@ -212,15 +274,14 @@ exohunter/
     └── parallel.py              #   Thread/process pool wrappers with tqdm
 ```
 
-### Key files outside the package
+### Scripts
 
-| File | Purpose |
-|------|---------|
-| `scripts/demo_single_star.py` | End-to-end demo on TOI-700 |
-| `scripts/run_pipeline.py` | CLI for single-target or batch processing |
-| `scripts/run_dashboard.py` | Dashboard server launcher |
-| `tests/conftest.py` | Synthetic light curve generators for offline tests |
-| `notebooks/01_exploratory.ipynb` | Jupyter notebook for interactive exploration |
+| Script | Purpose |
+|--------|---------|
+| `scripts/demo_single_star.py` | End-to-end demo on TOI-700 (3 planets) |
+| `scripts/run_pipeline.py` | CLI for single-target processing |
+| `scripts/run_batch.py` | Batch processing of an entire TESS sector |
+| `scripts/run_dashboard.py` | Dashboard server with demo data generator |
 
 ---
 
@@ -237,33 +298,28 @@ Every BLS detection passes through six tests before being accepted:
 | 5 | **V-shape** | <= 0.5 | Box-like = planet; V-shaped = eclipsing binary |
 | 6 | **Harmonics** | Not 2:1 or 3:1 | Flags period aliases of stronger signals |
 
-Tests 1–4 are hard requirements. Tests 5–6 produce warnings.
+Tests 1–4 are hard requirements. Tests 5–6 produce warnings that affect
+the candidate score but do not reject the candidate outright.
 
 ---
 
 ## Running tests
 
 ```bash
-# All tests — runs offline, no network required
-pytest
-
-# Verbose output
-pytest -v
-
-# With coverage report
-pytest --cov=exohunter --cov-report=term-missing
-
-# Single test file
-pytest tests/test_bls.py -v
+pytest                                          # 28 tests, all offline
+pytest -v                                       # verbose
+pytest --cov=exohunter --cov-report=term-missing  # with coverage
+pytest tests/test_bls.py -v                     # single module
 ```
 
-The test suite (28 tests) uses synthetic light curves with injected
-transits at known periods and depths. It verifies:
+The test suite uses synthetic light curves with injected transits at
+known periods and depths. It verifies:
 
 - **Preprocessing**: transit signal survives cleaning; outliers removed;
   normalization produces median = 1.0.
 - **BLS detection**: correct period recovered within 0.05 days; depth
-  within 2x of injected value; Numba implementation agrees with lightkurve.
+  within 2x of injected value; Numba implementation agrees with
+  lightkurve.
 - **Validation**: each of the six criteria correctly accepts good
   candidates and rejects bad ones.
 
@@ -277,7 +333,7 @@ transits at known periods and depths. It verifies:
 | Numerical computing | numpy, scipy, [numba](https://numba.pydata.org/) |
 | Visualization | [plotly](https://plotly.com/python/), [dash](https://dash.plotly.com/), dash-bootstrap-components |
 | Concurrency | concurrent.futures (`ThreadPoolExecutor`, `ProcessPoolExecutor`), numba `prange` |
-| ML (planned) | scikit-learn |
+| Catalog cross-matching | [ExoFOP-TESS](https://exofop.ipac.caltech.edu/tess/) TOI catalog (7,900+ entries) |
 | Testing | pytest, pytest-cov |
 
 ---
@@ -297,11 +353,14 @@ This project is designed for students. See
 
 ## Roadmap
 
+- [x] ~~Batch mode: process an entire TESS sector end-to-end~~
+- [x] ~~Cross-matching with ExoFOP-TESS TOI catalog~~
+- [x] ~~Candidate scoring and ranking system~~
+- [x] ~~Numba BLS optimized with prefix-sum algorithm (5.8x faster than C)~~
 - [ ] BLS implementation in C with OpenMP for comparison benchmarks
 - [ ] ML candidate classification (Random Forest, then CNN on phase curves)
 - [ ] Real-time query to the NASA Exoplanet Archive via astroquery TAP
 - [ ] Automatic alerts for new candidate detections
-- [ ] Batch mode: process an entire TESS sector end-to-end
 - [ ] VOTable export for Virtual Observatory interoperability
 - [ ] GPU-accelerated BLS using CUDA (via Numba or CuPy)
 - [ ] Multi-planet search: iteratively subtract detected transits and re-run BLS
@@ -319,7 +378,13 @@ This project is designed for students. See
   MIT Lincoln Laboratory.
 - **MAST** — Data accessed via the Mikulski Archive for Space Telescopes
   at the Space Telescope Science Institute.
+- **ExoFOP** — Cross-matching uses the TOI catalog from the
+  [Exoplanet Follow-up Observing Program](https://exofop.ipac.caltech.edu/tess/)
+  at IPAC/Caltech.
 - **lightkurve** — The [lightkurve](https://docs.lightkurve.org/) package
   is developed by the Kepler/K2 and TESS community.
 
 ---
+
+*Built at [UFPB Centro de Informatica](https://ci.ufpb.br/) as a
+teaching resource for concurrent programming and scientific computing.*

@@ -4,21 +4,34 @@ Defines the visual structure of the Dash application using
 dash-bootstrap-components (dbc) with the DARKLY theme.
 
 Layout structure:
-    ┌─────────────────────────────────────────────┐
-    │  Navbar                                     │
-    ├──────────┬──────────────────────────────────┤
-    │ Sidebar  │  Sky Map (Panel 1)               │
-    │ (filters)├──────────────────────────────────┤
-    │          │  Light Curve (Panel 2)           │
-    │          ├──────────────────────────────────┤
-    │          │  Phase Diagram (Panel 3)         │
-    ├──────────┴──────────────────────────────────┤
-    │  Candidate Table                            │
-    └─────────────────────────────────────────────┘
+    ┌─────────────────────────────────────────────────────┐
+    │  Navbar                                             │
+    ├──────────┬──────────────────────────────────────────┤
+    │ Sidebar  │  New Candidates Highlight Panel          │
+    │ (filters)├──────────────────────────────────────────┤
+    │          │  Sky Map (Panel 1)                       │
+    │          ├──────────────────────────────────────────┤
+    │          │  Light Curve (Panel 2)                   │
+    │          ├──────────────────────────────────────────┤
+    │          │  Phase Diagram (Panel 3)                 │
+    ├──────────┴──────────────────────────────────────────┤
+    │  Candidate Table                                    │
+    └─────────────────────────────────────────────────────┘
 """
 
 import dash_bootstrap_components as dbc
 from dash import dash_table, dcc, html
+
+
+# ---------------------------------------------------------------------------
+# Badge colors for each cross-match classification
+# ---------------------------------------------------------------------------
+XMATCH_BADGE_COLORS: dict[str, str] = {
+    "NEW_CANDIDATE": "success",
+    "KNOWN_MATCH": "info",
+    "KNOWN_TOI": "warning",
+    "HARMONIC": "danger",
+}
 
 
 def make_navbar() -> dbc.Navbar:
@@ -43,8 +56,48 @@ def make_navbar() -> dbc.Navbar:
 def make_sidebar() -> dbc.Card:
     """Create the sidebar with filter controls."""
     return dbc.Card([
-        dbc.CardHeader("Filters"),
+        dbc.CardHeader("Data & Filters"),
         dbc.CardBody([
+            # Data source selector
+            html.Label("Data Source", className="fw-bold mb-1"),
+            dcc.Dropdown(
+                id="data-source-selector",
+                placeholder="Select data source...",
+                clearable=False,
+                style={"backgroundColor": "rgb(50,50,50)", "color": "white"},
+                className="mb-2",
+            ),
+
+            html.Hr(),
+
+            # Classification filter
+            html.Label("Classification", className="fw-bold mb-1"),
+            dbc.Checklist(
+                id="xmatch-filter",
+                options=[
+                    {"label": html.Span([
+                        dbc.Badge("NEW", color="success", className="me-1"),
+                        " New Candidate",
+                    ]), "value": "NEW_CANDIDATE"},
+                    {"label": html.Span([
+                        dbc.Badge("MATCH", color="info", className="me-1"),
+                        " Known Match",
+                    ]), "value": "KNOWN_MATCH"},
+                    {"label": html.Span([
+                        dbc.Badge("TOI", color="warning", className="me-1"),
+                        " Known TOI",
+                    ]), "value": "KNOWN_TOI"},
+                    {"label": html.Span([
+                        dbc.Badge("HARM", color="danger", className="me-1"),
+                        " Harmonic",
+                    ]), "value": "HARMONIC"},
+                ],
+                value=["NEW_CANDIDATE", "KNOWN_MATCH", "KNOWN_TOI", "HARMONIC"],
+                className="mb-3",
+            ),
+
+            html.Hr(),
+
             # Period range filter
             html.Label("Period Range (days)", className="fw-bold mb-1"),
             dcc.RangeSlider(
@@ -74,7 +127,7 @@ def make_sidebar() -> dbc.Card:
             html.Hr(),
 
             # Status filter
-            html.Label("Status", className="fw-bold mb-1"),
+            html.Label("Validation Status", className="fw-bold mb-1"),
             dbc.Checklist(
                 id="status-filter",
                 options=[
@@ -96,21 +149,34 @@ def make_sidebar() -> dbc.Card:
                 className="w-100 mt-2",
             ),
             dcc.Download(id="export-download"),
-
-            html.Hr(),
-
-            # Pipeline status indicator
-            html.Label("Data Source", className="fw-bold mb-1"),
-            html.Div(id="pipeline-status", children=[
-                dbc.Badge("Demo — TOI-700", color="info", className="me-1"),
-            ]),
         ]),
     ], className="h-100")
 
 
+def make_new_candidates_panel() -> dbc.Card:
+    """Create the highlight panel for new uncatalogued candidates."""
+    return dbc.Card([
+        dbc.CardHeader([
+            dbc.Badge("NEW", color="success", className="me-2"),
+            "New Candidates — Not in Any Catalog",
+        ]),
+        dbc.CardBody(
+            html.Div(id="new-candidates-panel", children=[
+                html.P(
+                    "No new candidates yet. Process a sector to find them!",
+                    className="text-muted mb-0",
+                ),
+            ]),
+        ),
+    ], className="mb-3", style={"borderColor": "#00ff88", "borderWidth": "1px"})
+
+
 def make_main_content() -> html.Div:
-    """Create the main content area with three visualization panels."""
+    """Create the main content area with highlight panel and three viz panels."""
     return html.Div([
+        # Highlight panel — new uncatalogued candidates
+        make_new_candidates_panel(),
+
         # Panel 1 — Sky Map
         dbc.Card([
             dbc.CardHeader("Panel 1 — Sky Map"),
@@ -128,8 +194,6 @@ def make_main_content() -> html.Div:
                         value=True,
                         className="d-inline-block me-3",
                     ),
-                    # Candidate selector — populated dynamically when a
-                    # target has multiple transit candidates
                     dcc.Dropdown(
                         id="candidate-selector",
                         placeholder="Select candidate...",
