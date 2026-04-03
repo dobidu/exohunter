@@ -341,17 +341,19 @@ def run_batch(
                 flux=processed.flux,
             )
 
-            # Determine status via cross-matching
+            # Cross-match ALL detections against the TOI catalog,
+            # regardless of SNR.  A low-SNR detection in a known TOI
+            # system is still useful (confirms the star was observed),
+            # and a NEW_CANDIDATE at any SNR is worth flagging.
+            xmatch = crossmatch_candidate(candidate)
+            xmatch_class = xmatch.match_class.value
+
+            # Determine validation status
             status = "below_snr"
-            xmatch_class = ""
             if candidate.snr >= config.MIN_SNR:
                 status = "candidate"
                 if validation.is_valid:
                     catalog.add(candidate, validation)
-
-                    # Cross-match against TOI catalog
-                    xmatch = crossmatch_candidate(candidate)
-                    xmatch_class = xmatch.match_class.value
                     status = xmatch_class.lower()
 
             summary_rows.append({
