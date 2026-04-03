@@ -175,6 +175,9 @@ def make_candidate_table() -> dbc.Card:
                      "format": dash_table.Format.Format(precision=4)},
                     {"name": "SNR", "id": "snr", "type": "numeric",
                      "format": dash_table.Format.Format(precision=1)},
+                    {"name": "Score", "id": "score", "type": "numeric",
+                     "format": dash_table.Format.Format(precision=1)},
+                    {"name": "Classification", "id": "xmatch_class"},
                     {"name": "Status", "id": "status"},
                     {"name": "Flags", "id": "flags"},
                 ],
@@ -197,8 +200,22 @@ def make_candidate_table() -> dbc.Card:
                 },
                 style_data_conditional=[
                     {
-                        "if": {"filter_query": '{status} = "Validated"'},
-                        "backgroundColor": "rgba(0, 128, 0, 0.15)",
+                        "if": {"filter_query": '{xmatch_class} = "NEW_CANDIDATE"'},
+                        "backgroundColor": "rgba(0, 255, 100, 0.20)",
+                        "color": "#00ff88",
+                        "fontWeight": "bold",
+                    },
+                    {
+                        "if": {"filter_query": '{xmatch_class} = "KNOWN_MATCH"'},
+                        "backgroundColor": "rgba(0, 128, 255, 0.15)",
+                    },
+                    {
+                        "if": {"filter_query": '{xmatch_class} = "KNOWN_TOI"'},
+                        "backgroundColor": "rgba(255, 200, 0, 0.12)",
+                    },
+                    {
+                        "if": {"filter_query": '{xmatch_class} = "HARMONIC"'},
+                        "backgroundColor": "rgba(255, 100, 0, 0.12)",
                     },
                     {
                         "if": {"filter_query": '{status} = "Rejected"'},

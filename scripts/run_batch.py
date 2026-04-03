@@ -341,22 +341,23 @@ def run_batch(
                 flux=processed.flux,
             )
 
-            # Determine status
+            # Determine status via cross-matching
             status = "below_snr"
+            xmatch_class = ""
             if candidate.snr >= config.MIN_SNR:
                 status = "candidate"
                 if validation.is_valid:
-                    status = "validated"
                     catalog.add(candidate, validation)
 
-                    # Cross-match with known planets
+                    # Cross-match against TOI catalog
                     xmatch = crossmatch_candidate(candidate)
-                    if xmatch.match_found:
-                        status = "confirmed"
+                    xmatch_class = xmatch.match_class.value
+                    status = xmatch_class.lower()
 
             summary_rows.append({
                 "tic_id": tic_id,
                 "status": status,
+                "xmatch_class": xmatch_class,
                 "period": candidate.period,
                 "depth": candidate.depth,
                 "snr": candidate.snr,

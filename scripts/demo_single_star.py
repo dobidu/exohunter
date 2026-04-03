@@ -109,13 +109,14 @@ def main() -> None:
             for flag in validation.flags:
                 print(f"        - {flag}")
 
-        # Step 5: Cross-match
-        print("[5/5] Cross-matching with known catalogs...")
+        # Step 5: Cross-match with TOI catalog
+        print("[5/5] Cross-matching with TOI catalog...")
         xmatch = crossmatch_candidate(candidate)
-        if xmatch.match_found:
-            print(f"      MATCH: {xmatch.catalog_name} (ΔP={xmatch.period_difference:.4f} d)")
-        else:
-            print(f"      No match in known catalogs — potential new candidate!")
+        print(f"      Classification: {xmatch.match_class.value}")
+        if xmatch.catalog_name:
+            print(f"      Catalog match: {xmatch.catalog_name} (ΔP={xmatch.period_difference:.4f} d)")
+        if xmatch.match_class.value == "NEW_CANDIDATE":
+            print(f"      *** POTENTIAL NEW EXOPLANET! ***")
     else:
         print("      No transit signal detected.")
         print("[4/5] Skipping validation (no candidate)")

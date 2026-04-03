@@ -61,20 +61,28 @@ def make_sky_map(
         "processed": "rgba(150, 150, 150, 0.5)",
         "candidate": "gold",
         "validated": "limegreen",
+        "new_candidate": "#00ff88",    # bright green — the exciting ones!
+        "known_match": "deepskyblue",
+        "known_toi": "gold",
+        "harmonic": "orange",
         "rejected": "tomato",
     }
-    # Validated targets are drawn larger so they stand out
     size_map = {
         "processed": 5,
         "candidate": 8,
         "validated": 12,
+        "new_candidate": 14,
+        "known_match": 10,
+        "known_toi": 9,
+        "harmonic": 7,
         "rejected": 7,
     }
 
     fig = go.Figure()
 
-    # Draw in order so validated targets appear on top
-    for status in ["processed", "rejected", "candidate", "validated"]:
+    # Draw in order so the most interesting targets appear on top
+    for status in ["processed", "rejected", "harmonic", "known_toi",
+                    "candidate", "known_match", "validated", "new_candidate"]:
         mask = [s == status for s in statuses]
         if not any(mask):
             continue

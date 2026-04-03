@@ -3,6 +3,9 @@
 Stores, filters, and retrieves transit candidates discovered by the
 pipeline.  The catalog is an in-memory list backed by optional
 persistence to CSV.
+
+Includes a scoring system that ranks candidates by how promising they
+are for visual inspection and follow-up observations.
 """
 
 from __future__ import annotations
@@ -17,6 +20,46 @@ from exohunter.detection.validator import ValidationResult, validate_candidate
 from exohunter.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+def compute_score(
+    candidate: TransitCandidate,
+    validation: ValidationResult,
+) -> float:
+    """Compute a priority score for a transit candidate.
+
+    The score combines SNR (signal strength) with penalty factors
+    for characteristics that suggest false positives:
+
+        score = SNR × v_shape_factor × depth_factor
+
+    Factors:
+        - **V-shape**: 1.0 if the transit is box-like (v_shape test
+          passed, metric < 0.5), 0.5 if V-shaped (suggests eclipsing
+          binary rather than a planet).
+        - **Depth**: 1.0 if depth < 2% (plausible for a planet),
+          0.7 if depth >= 2% (deep transits are more likely to be
+          eclipsing binaries or blended systems).
+
+    Higher scores are more promising for follow-up.
+
+    Args:
+        candidate: The transit candidate.
+        validation: The validation result (provides V-shape test).
+
+    Returns:
+        A non-negative score.  Typical range: 3.5–50+ for validated
+        candidates.
+    """
+    # V-shape factor: penalise V-shaped dips (possible eclipsing binary)
+    v_shape_passed = validation.tests.get("v_shape", True)
+    v_shape_factor = 1.0 if v_shape_passed else 0.5
+
+    # Depth factor: penalise very deep transits (> 2%)
+    depth_factor = 1.0 if candidate.depth < 0.02 else 0.7
+
+    score = candidate.snr * v_shape_factor * depth_factor
+    return round(score, 2)
 
 
 class CandidateCatalog:
@@ -51,11 +94,13 @@ class CandidateCatalog:
             )
 
         self.candidates.append((candidate, validation))
+        score = compute_score(candidate, validation)
         logger.info(
-            "Added candidate %s (P=%.4f d, valid=%s) — catalog size: %d",
+            "Added candidate %s (P=%.4f d, valid=%s, score=%.1f) — catalog size: %d",
             candidate.tic_id,
             candidate.period,
             validation.is_valid,
+            score,
             len(self.candidates),
         )
 
@@ -75,27 +120,67 @@ class CandidateCatalog:
         """
         return [c for c, v in self.candidates if not v.is_valid]
 
+    def get_ranked(self, limit: int | None = None) -> list[tuple[TransitCandidate, ValidationResult, float]]:
+        """Return candidates sorted by score (highest first).
+
+        Args:
+            limit: Maximum number of candidates to return.
+                ``None`` returns all.
+
+        Returns:
+            List of ``(candidate, validation, score)`` tuples,
+            sorted by descending score.
+        """
+        scored = [
+            (c, v, compute_score(c, v))
+            for c, v in self.candidates
+        ]
+        scored.sort(key=lambda x: x[2], reverse=True)
+
+        if limit is not None:
+            scored = scored[:limit]
+
+        return scored
+
+    def get_top(self, n: int = 20) -> list[tuple[TransitCandidate, ValidationResult, float]]:
+        """Return the top N most promising candidates for visual inspection.
+
+        Convenience wrapper around ``get_ranked`` that defaults to 20.
+
+        Args:
+            n: Number of top candidates to return.
+
+        Returns:
+            List of ``(candidate, validation, score)`` tuples.
+        """
+        return self.get_ranked(limit=n)
+
     def to_dataframe(self) -> pd.DataFrame:
         """Convert the catalog to a pandas DataFrame.
 
         Returns:
             A DataFrame with one row per candidate, including validation
-            status and flags.
+            status, flags, and priority score.
         """
         rows: list[dict] = []
         for candidate, validation in self.candidates:
             row = asdict(candidate)
             row["is_valid"] = validation.is_valid
             row["flags"] = "; ".join(validation.flags) if validation.flags else ""
+            row["score"] = compute_score(candidate, validation)
             rows.append(row)
 
-        return pd.DataFrame(rows)
+        df = pd.DataFrame(rows)
+        if not df.empty:
+            df = df.sort_values("score", ascending=False).reset_index(drop=True)
+        return df
 
     def summary(self) -> str:
         """Return a human-readable summary of the catalog.
 
         Returns:
-            Multi-line string with candidate counts and highlights.
+            Multi-line string with candidate counts, highlights,
+            and top candidates by score.
         """
         total = len(self.candidates)
         valid = len(self.get_valid())
@@ -103,19 +188,25 @@ class CandidateCatalog:
 
         lines = [
             f"ExoHunter Candidate Catalog",
-            f"{'=' * 40}",
+            f"{'=' * 50}",
             f"Total candidates:    {total}",
             f"Validated:           {valid}",
             f"Rejected:            {rejected}",
         ]
 
         if valid > 0:
-            lines.append(f"\nValidated candidates:")
-            for candidate in self.get_valid():
+            top = self.get_top(n=min(20, valid))
+            lines.append(f"\nTop {len(top)} candidates by score:")
+            lines.append(
+                f"  {'TIC ID':<20s} {'Period (d)':>10s} "
+                f"{'Depth (%)':>10s} {'SNR':>6s} {'Score':>7s}"
+            )
+            lines.append(f"  {'-'*55}")
+            for candidate, validation, score in top:
                 lines.append(
-                    f"  {candidate.tic_id}: P={candidate.period:.4f} d, "
-                    f"depth={candidate.depth * 100:.3f}%, "
-                    f"SNR={candidate.snr:.1f}"
+                    f"  {candidate.tic_id:<20s} {candidate.period:>10.4f} "
+                    f"{candidate.depth * 100:>10.3f} {candidate.snr:>6.1f} "
+                    f"{score:>7.1f}"
                 )
 
         return "\n".join(lines)

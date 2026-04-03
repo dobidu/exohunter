@@ -204,6 +204,8 @@ def generate_demo_data() -> dict:
             "status": "validated",
             "flags": "",
             "name": planet["name"],
+            "xmatch_class": "KNOWN_MATCH",
+            "score": planet["snr"] * 1.0 * 1.0,  # v_shape OK, depth < 2%
         })
 
     # --- Sky map targets: TOI-700 + simulated sector stars ---

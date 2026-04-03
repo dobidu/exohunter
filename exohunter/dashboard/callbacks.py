@@ -113,6 +113,8 @@ def register_callbacks(app: Dash) -> None:
                 "duration": c.get("duration", 0),
                 "depth_pct": c.get("depth", 0) * 100,
                 "snr": c.get("snr", 0),
+                "score": c.get("score", 0),
+                "xmatch_class": c.get("xmatch_class", ""),
                 "status": c.get("status", "Candidate").capitalize(),
                 "flags": c.get("flags", ""),
             })

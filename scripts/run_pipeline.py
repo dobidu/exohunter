@@ -131,10 +131,13 @@ def main() -> None:
         # Add to catalog
         catalog.add(candidate, validation)
 
-        # Cross-match with known catalogs
+        # Cross-match with TOI catalog
         xmatch = crossmatch_candidate(candidate)
-        if xmatch.match_found:
-            logger.info("Matches known planet: %s", xmatch.catalog_name)
+        logger.info(
+            "Cross-match classification: %s%s",
+            xmatch.match_class.value,
+            f" ({xmatch.catalog_name})" if xmatch.catalog_name else "",
+        )
 
     # Step 4: Report results
     print("\n" + catalog.summary())
