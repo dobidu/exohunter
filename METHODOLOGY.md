@@ -725,18 +725,20 @@ All configurable parameters are centralized in `exohunter/config.py`:
 - Synthetic light curves with known injected parameters
 - Deterministic random seeds for reproducibility
 
-### 9.2 Test coverage (125 tests)
+### 9.2 Test coverage (152 tests)
 
 | Module | Tests | What is verified |
 |--------|-------|-----------------|
 | `test_bls.py` | 13 | Period recovery (lightkurve + Numba), depth accuracy, cross-implementation agreement, flat data, iterative multi-planet search |
 | `test_cache.py` | 11 | FITS roundtrip (time, flux, flux_err), 20k-cadence stress test, cache miss, corrupt file, overwrite |
-| `test_catalog.py` | 22 | Scoring formula (5 penalty cases + boundary), catalog CRUD, ranking, DataFrame, TIC parsing, 4-tier cross-match |
+| `test_catalog.py` | 31 | Scoring formula, catalog CRUD, ranking, DataFrame, TIC parsing, 4-tier cross-match, batch, staleness check, source modes |
 | `test_classification.py` | 15 | Feature extraction, RF training on synthetic data, prediction validity, probability normalization, NaN handling, model persistence |
-| `test_dashboard.py` | 24 | Demo data schema, app creation, 16 component IDs, figure generation, end-to-end pipeline flow |
+| `test_dashboard.py` | 26 | Demo data schema, app creation, component IDs, all 5 figure generators (sky map, light curve, phase, periodogram, odd-even), end-to-end pipeline |
+| `test_export.py` | 13 | CSV/FITS/VOTable roundtrip, UCD metadata, units, empty catalog, default paths |
 | `test_model.py` | 14 | Transit model values, periodicity, symmetry, bounds, phase folding, binning |
 | `test_preprocessing.py` | 6 | Signal preservation, output fields, cadence retention, outlier removal, normalization |
-| `test_validator.py` | 21 | All 6 criteria pass/fail, boundary cases, overall logic |
+| `test_utils.py` | 8 | Logger, @timing decorator, thread pool order + exceptions, process pool order, empty input |
+| `test_validator.py` | 15 | All 6 criteria pass/fail, boundary cases, overall logic |
 
 ### 9.3 Synthetic data generation
 
@@ -766,7 +768,7 @@ git clone https://github.com/dobidu/exohunter.git
 cd exohunter
 python -m venv venv && source venv/bin/activate
 pip install -e ".[dev]"
-pytest                    # 125 tests, all offline
+pytest                    # 152 tests, all offline
 ```
 
 ### 10.2 Download the TOI catalog
