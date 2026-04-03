@@ -430,7 +430,7 @@ known periods and depths. It verifies:
 - [ ] CNN classification on phase curves (upgrade from tabular RF)
 - [x] ~~Real-time query to the NASA Exoplanet Archive via astroquery TAP~~
 - [ ] Automatic alerts for new candidate detections
-- [ ] VOTable export for Virtual Observatory interoperability
+- [x] ~~VOTable export for Virtual Observatory interoperability~~
 - [ ] GPU-accelerated BLS using CUDA (via Numba or CuPy)
 - [x] ~~Multi-planet search: iteratively subtract detected transits and re-run BLS~~
 
