@@ -383,3 +383,138 @@ def run_bls_numba(
         snr,
     )
     return candidate
+
+
+# ---------------------------------------------------------------------------
+# Iterative multi-planet BLS search
+# ---------------------------------------------------------------------------
+
+def run_iterative_bls(
+    light_curve: LightCurve,
+    tic_id: str = "unknown",
+    min_period: float = config.BLS_MIN_PERIOD_DAYS,
+    max_period: float = config.BLS_MAX_PERIOD_DAYS,
+    num_periods: int = config.BLS_NUM_PERIODS,
+    frequency_factor: int = config.BLS_FREQUENCY_FACTOR,
+    max_planets: int = 5,
+    min_snr: float = 5.0,
+) -> list[TransitCandidate]:
+    """Search for multiple transiting planets by iterative subtraction.
+
+    Algorithm:
+        1. Run BLS on the light curve to find the strongest signal.
+        2. If the signal has SNR >= ``min_snr``, record the candidate.
+        3. Subtract the best-fit trapezoidal transit model from the flux.
+        4. Re-run BLS on the residual light curve.
+        5. Repeat until no signal exceeds ``min_snr`` or ``max_planets``
+           candidates have been found.
+
+    The subtraction uses the trapezoidal model from
+    ``exohunter.detection.model.transit_model``, which provides a
+    good-enough approximation for removing the transit signal without
+    overfitting.
+
+    Args:
+        light_curve: Preprocessed ``LightCurve`` (normalized, detrended).
+        tic_id: Target identifier.
+        min_period: BLS minimum trial period (days).
+        max_period: BLS maximum trial period (days).
+        num_periods: Number of trial periods in the BLS grid.
+        frequency_factor: BLS frequency oversampling factor.
+        max_planets: Maximum number of planets to search for.
+        min_snr: Minimum SNR to accept a candidate. Set lower than the
+            validation threshold (7.0) to catch weaker signals that
+            may still be real planets.
+
+    Returns:
+        A list of ``TransitCandidate`` objects, ordered by detection
+        (strongest signal first). May be empty if no signal exceeds
+        ``min_snr``.
+    """
+    from exohunter.detection.model import transit_model
+
+    candidates: list[TransitCandidate] = []
+
+    # Work on copies of the time and flux arrays so we don't modify
+    # the original LightCurve.
+    time = np.array(light_curve.time.value, dtype=np.float64)
+    flux = np.array(light_curve.flux.value, dtype=np.float64)
+
+    logger.info(
+        "Starting iterative BLS on %s (max %d planets, min SNR %.1f)",
+        tic_id, max_planets, min_snr,
+    )
+
+    for iteration in range(max_planets):
+        # Build a LightCurve from the current (possibly residual) flux
+        residual_lc = LightCurve(time=time, flux=flux)
+
+        candidate = run_bls_lightkurve(
+            residual_lc,
+            tic_id=tic_id,
+            min_period=min_period,
+            max_period=max_period,
+            num_periods=num_periods,
+            frequency_factor=frequency_factor,
+        )
+
+        if candidate is None:
+            logger.info("Iteration %d: BLS returned no candidate — stopping", iteration + 1)
+            break
+
+        if candidate.snr < min_snr:
+            logger.info(
+                "Iteration %d: SNR=%.1f < %.1f — stopping",
+                iteration + 1, candidate.snr, min_snr,
+            )
+            break
+
+        # Check this isn't a duplicate of an already-found period
+        # (within 1% or an exact harmonic)
+        is_duplicate = False
+        for prev in candidates:
+            ratio = candidate.period / prev.period
+            for harmonic in [1.0, 0.5, 2.0, 1.0 / 3.0, 3.0]:
+                if abs(ratio - harmonic) / harmonic < 0.01:
+                    is_duplicate = True
+                    break
+            if is_duplicate:
+                break
+
+        if is_duplicate:
+            logger.info(
+                "Iteration %d: P=%.4f d is a duplicate/harmonic of a "
+                "previous detection — stopping",
+                iteration + 1, candidate.period,
+            )
+            break
+
+        # Label the candidate with its planet letter (b, c, d, ...)
+        planet_letter = chr(ord("b") + iteration)
+        candidate.name = f"{tic_id} {planet_letter}"
+
+        candidates.append(candidate)
+        logger.info(
+            "Iteration %d: found planet %s — P=%.4f d, depth=%.4f%%, SNR=%.1f",
+            iteration + 1, planet_letter,
+            candidate.period, candidate.depth * 100, candidate.snr,
+        )
+
+        # Subtract the transit model from the flux
+        model_flux = transit_model(
+            time=time,
+            period=candidate.period,
+            epoch=candidate.epoch,
+            duration=candidate.duration,
+            depth=candidate.depth,
+        )
+        # The model produces values like 1.0 (out of transit) and
+        # 1.0-depth (in transit).  To subtract: flux_residual = flux - (model - 1.0)
+        # This removes the transit dip and leaves the baseline at ~1.0.
+        flux = flux - (model_flux - 1.0)
+
+    logger.info(
+        "Iterative BLS on %s: found %d planet(s)",
+        tic_id, len(candidates),
+    )
+    return candidates

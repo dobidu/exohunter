@@ -423,7 +423,7 @@ known periods and depths. It verifies:
 - [ ] Automatic alerts for new candidate detections
 - [ ] VOTable export for Virtual Observatory interoperability
 - [ ] GPU-accelerated BLS using CUDA (via Numba or CuPy)
-- [ ] Multi-planet search: iteratively subtract detected transits and re-run BLS
+- [x] ~~Multi-planet search: iteratively subtract detected transits and re-run BLS~~
 
 ---
 

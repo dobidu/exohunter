@@ -39,7 +39,7 @@ from tqdm import tqdm
 from exohunter import config
 from exohunter.catalog.candidates import CandidateCatalog
 from exohunter.catalog.crossmatch import crossmatch_candidate
-from exohunter.detection.bls import run_bls_lightkurve
+from exohunter.detection.bls import run_bls_lightkurve, run_iterative_bls
 from exohunter.detection.validator import validate_candidate
 from exohunter.ingestion.downloader import download_lightcurve
 from exohunter.preprocessing.pipeline import preprocess_single
@@ -258,6 +258,7 @@ def run_batch(
     multi_sector: bool = False,
     single_sector: bool = False,
     classify: bool = False,
+    multi_planet: bool = False,
 ) -> tuple[CandidateCatalog, pd.DataFrame]:
     """Run the full ExoHunter pipeline on a TESS sector.
 
@@ -418,17 +419,28 @@ def run_batch(
                 target_max_period = max_period
                 target_num_periods = config.BLS_NUM_PERIODS
 
-            # BLS detection
+            # BLS detection — single or iterative multi-planet
             lc_for_bls = processed.to_lightcurve()
-            candidate = run_bls_lightkurve(
-                lc_for_bls,
-                tic_id=tic_id,
-                min_period=min_period,
-                max_period=target_max_period,
-                num_periods=target_num_periods,
-            )
 
-            if candidate is None:
+            if multi_planet:
+                detected = run_iterative_bls(
+                    lc_for_bls,
+                    tic_id=tic_id,
+                    min_period=min_period,
+                    max_period=target_max_period,
+                    num_periods=target_num_periods,
+                )
+            else:
+                single = run_bls_lightkurve(
+                    lc_for_bls,
+                    tic_id=tic_id,
+                    min_period=min_period,
+                    max_period=target_max_period,
+                    num_periods=target_num_periods,
+                )
+                detected = [single] if single is not None else []
+
+            if not detected:
                 summary_rows.append({
                     "tic_id": tic_id,
                     "status": "no_signal",
@@ -439,58 +451,60 @@ def run_batch(
                 n_processed += 1
                 continue
 
-            # Validate
-            validation = validate_candidate(
-                candidate,
-                time=processed.time,
-                flux=processed.flux,
-            )
-
-            # Cross-match ALL detections against the TOI catalog
-            xmatch = crossmatch_candidate(candidate)
-            xmatch_class = xmatch.match_class.value
-
-            # Determine validation status
-            status = "below_snr"
-            if candidate.snr >= config.MIN_SNR:
-                status = "candidate"
-                if validation.is_valid:
-                    catalog.add(candidate, validation)
-                    status = xmatch_class.lower()
-
-            # ML classification (if model loaded)
-            ml_class = ""
-            ml_prob_planet = 0.0
-            if ml_pipeline is not None:
-                from exohunter.classification.features import candidate_to_features
-                from exohunter.classification.model import classify_candidates
-                import pandas as _pd
-
-                feat = candidate_to_features(candidate, validation)
-                feat_df = _pd.DataFrame([feat])
-                ml_result = classify_candidates(ml_pipeline, feat_df)
-                ml_class = str(ml_result.iloc[0]["ml_class"])
-                ml_prob_planet = float(ml_result.iloc[0].get("ml_prob_planet", 0.0))
-
-            # Record baseline info for multi-sector tracking
+            # Process each detected candidate (1 for single, N for multi-planet)
             baseline_days = float(processed.time[-1] - processed.time[0])
 
-            summary_rows.append({
-                "tic_id": tic_id,
-                "status": status,
-                "xmatch_class": xmatch_class,
-                "ml_class": ml_class,
-                "ml_prob_planet": ml_prob_planet,
-                "period": candidate.period,
-                "depth": candidate.depth,
-                "snr": candidate.snr,
-                "duration": candidate.duration,
-                "n_transits": candidate.n_transits,
-                "is_valid": validation.is_valid,
-                "flags": "; ".join(validation.flags),
-                "baseline_days": baseline_days,
-                "bls_max_period": target_max_period,
-            })
+            for candidate in detected:
+                # Validate
+                validation = validate_candidate(
+                    candidate,
+                    time=processed.time,
+                    flux=processed.flux,
+                )
+
+                # Cross-match against TOI catalog
+                xmatch = crossmatch_candidate(candidate)
+                xmatch_class = xmatch.match_class.value
+
+                # Determine validation status
+                status = "below_snr"
+                if candidate.snr >= config.MIN_SNR:
+                    status = "candidate"
+                    if validation.is_valid:
+                        catalog.add(candidate, validation)
+                        status = xmatch_class.lower()
+
+                # ML classification (if model loaded)
+                ml_class = ""
+                ml_prob_planet = 0.0
+                if ml_pipeline is not None:
+                    from exohunter.classification.features import candidate_to_features
+                    from exohunter.classification.model import classify_candidates
+                    import pandas as _pd
+
+                    feat = candidate_to_features(candidate, validation)
+                    feat_df = _pd.DataFrame([feat])
+                    ml_result = classify_candidates(ml_pipeline, feat_df)
+                    ml_class = str(ml_result.iloc[0]["ml_class"])
+                    ml_prob_planet = float(ml_result.iloc[0].get("ml_prob_planet", 0.0))
+
+                summary_rows.append({
+                    "tic_id": tic_id,
+                    "name": candidate.name,
+                    "status": status,
+                    "xmatch_class": xmatch_class,
+                    "ml_class": ml_class,
+                    "ml_prob_planet": ml_prob_planet,
+                    "period": candidate.period,
+                    "depth": candidate.depth,
+                    "snr": candidate.snr,
+                    "duration": candidate.duration,
+                    "n_transits": candidate.n_transits,
+                    "is_valid": validation.is_valid,
+                    "flags": "; ".join(validation.flags),
+                    "baseline_days": baseline_days,
+                    "bls_max_period": target_max_period,
+                })
             n_processed += 1
 
         except Exception:
@@ -658,6 +672,17 @@ def parse_args() -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--multi-planet",
+        action="store_true",
+        default=False,
+        help=(
+            "Search for multiple planets per target using iterative BLS. "
+            "Subtracts the best-fit transit model after each detection and "
+            "re-runs BLS on the residuals. Finds up to 5 planets per star "
+            "(stops when SNR < 5.0 or a harmonic/duplicate is detected)."
+        ),
+    )
+    parser.add_argument(
         "--classify",
         action="store_true",
         default=False,
@@ -711,6 +736,7 @@ def main() -> None:
         multi_sector=args.multi_sector,
         single_sector=args.single_sector,
         classify=args.classify,
+        multi_planet=args.multi_planet,
     )
 
     # Save results

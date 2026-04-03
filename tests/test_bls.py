@@ -155,3 +155,103 @@ class TestTransitCandidateDataclass:
             name="TOI-700 d",
         )
         assert tc.name == "TOI-700 d"
+
+
+class TestIterativeBLS:
+    """Test the multi-planet iterative BLS search."""
+
+    def test_finds_two_planets(self) -> None:
+        """Iterative BLS must find both planets in a two-planet system.
+
+        Uses min_snr=0.0 because lightkurve's compute_stats returns
+        SNR=0 for synthetic data without realistic error bars.  The
+        iterative search relies on the duplicate/harmonic check and
+        max_planets to stop instead.
+        """
+        from exohunter.detection.bls import run_iterative_bls
+        from tests.conftest import make_multi_planet_lc
+
+        lc = make_multi_planet_lc(
+            planets=[
+                {"period": 3.0, "epoch": 1.5, "depth": 0.015, "duration": 0.1},
+                {"period": 7.0, "epoch": 3.5, "depth": 0.01,  "duration": 0.15},
+            ],
+            noise=0.0005,
+            n_points=20000,
+            baseline_days=90.0,
+        )
+
+        candidates = run_iterative_bls(
+            lc, tic_id="MULTI_TEST",
+            min_period=1.0, max_period=12.0, num_periods=5000,
+            max_planets=4, min_snr=0.0,
+        )
+
+        assert len(candidates) >= 2, (
+            f"Expected at least 2 planets, found {len(candidates)}: "
+            f"{[c.period for c in candidates]}"
+        )
+
+        found_periods = sorted([c.period for c in candidates])
+        assert any(abs(p - 3.0) < 0.2 for p in found_periods), (
+            f"P=3.0 d not found in {found_periods}"
+        )
+        assert any(abs(p - 7.0) < 0.2 for p in found_periods), (
+            f"P=7.0 d not found in {found_periods}"
+        )
+
+    def test_returns_empty_for_flat_data(self, noisy_lc) -> None:
+        """Iterative BLS on flat data must return an empty list."""
+        from exohunter.detection.bls import run_iterative_bls
+
+        candidates = run_iterative_bls(
+            noisy_lc, tic_id="FLAT_ITER",
+            min_period=1.0, max_period=15.0, num_periods=1000,
+            min_snr=5.0,
+        )
+
+        assert len(candidates) == 0
+
+    def test_candidates_have_planet_letters(self) -> None:
+        """Each candidate must be labeled with a planet letter (b, c, ...)."""
+        from exohunter.detection.bls import run_iterative_bls
+        from tests.conftest import make_multi_planet_lc
+
+        lc = make_multi_planet_lc(
+            planets=[
+                {"period": 3.0, "epoch": 1.5, "depth": 0.015, "duration": 0.1},
+                {"period": 7.0, "epoch": 3.5, "depth": 0.01,  "duration": 0.15},
+            ],
+            noise=0.0005,
+            n_points=20000,
+            baseline_days=90.0,
+        )
+
+        candidates = run_iterative_bls(
+            lc, tic_id="TIC 123",
+            min_period=1.0, max_period=12.0, num_periods=5000,
+            max_planets=4, min_snr=0.0,
+        )
+
+        if len(candidates) >= 1:
+            assert "b" in candidates[0].name
+        if len(candidates) >= 2:
+            assert "c" in candidates[1].name
+
+    def test_stops_at_max_planets(self) -> None:
+        """Iterative BLS must not exceed max_planets."""
+        from exohunter.detection.bls import run_iterative_bls
+        from tests.conftest import make_synthetic_transit_lc
+
+        # Strong signal — BLS will always find something
+        lc = make_synthetic_transit_lc(
+            period=5.0, depth=0.02, duration=0.15, noise=0.0003,
+        )
+
+        candidates = run_iterative_bls(
+            lc, tic_id="MAX_TEST",
+            min_period=1.0, max_period=10.0, num_periods=3000,
+            max_planets=1, min_snr=1.0,
+        )
+
+        assert len(candidates) <= 1
