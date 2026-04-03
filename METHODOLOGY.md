@@ -10,26 +10,7 @@ for developers who want to reproduce, extend, or audit the pipeline.
 
 ExoHunter is a five-stage pipeline:
 
-```
-MAST Archive
-     |
-     v
-[1. Ingestion] -----> ThreadPoolExecutor (8 threads)
-     |                  Download + FITS cache
-     v
-[2. Preprocessing] --> ProcessPoolExecutor (N-1 cores)
-     |                  Clean, normalize, detrend
-     v
-[3. Detection] ------> BLS periodogram (lightkurve C or Numba JIT)
-     |                  6-criterion validation
-     v
-[4. Catalog] --------> ExoFOP-TESS cross-match (7,900+ TOIs)
-     |                  Priority scoring and ranking
-     v
-[5. Dashboard] ------> Plotly Dash (DARKLY theme)
-                        Sector selector, classification filters
-                        Sky map, light curve, phase diagram
-```
+![ExoHunter Pipeline](imgs/pipeline.png)
 
 Each stage is a separate Python package (`exohunter/ingestion/`,
 `exohunter/preprocessing/`, etc.) with clearly defined input and
@@ -147,40 +128,7 @@ transits.
 
 Each light curve passes through five steps in order:
 
-```
-Raw LightCurve (lightkurve)
-  |
-  v
-[1] remove_nans()
-  |  Remove cadences where time or flux is NaN
-  |  (typically ~0.1% of data)
-  v
-[2] remove_outliers(sigma=5.0)
-  |  Sigma-clipping: discard points > 5 standard deviations from
-  |  the local median. Catches cosmic rays (single-cadence spikes)
-  |  and instrumental glitches.
-  |  Note: 5-sigma is chosen to NOT clip transit dips, which are
-  |  typically < 3-sigma for small planets.
-  v
-[3] normalize()
-  |  Divide all flux values by the median flux, so the baseline
-  |  becomes 1.0. A transit depth of 0.01 now means "1% dip".
-  |  This standardizes units across different stars/instruments.
-  v
-[4] flatten(window_length=1001)
-  |  Apply a Savitzky-Golay smoothing filter to estimate the
-  |  low-frequency stellar trend, then divide it out. Window of
-  |  1001 cadences at 2-min cadence = ~33 hours, which removes
-  |  variability on timescales > 1 day while preserving transit
-  |  dips lasting 1-13 hours.
-  v
-[5] estimate_cdpp(transit_duration=13)
-  |  Compute the Combined Differential Photometric Precision —
-  |  a noise metric in ppm on the timescale of a 13-hour transit.
-  |  Lower CDPP = better sensitivity to small planets.
-  v
-ProcessedLightCurve(time, flux, flux_err, cdpp, tic_id, sectors, metadata)
-```
+![ExoHunter Pipeline Steps](imgs/preprocessing.png)
 
 ### 3.4 Output data structure
 
@@ -375,11 +323,7 @@ def transit_model(time, period, epoch, duration, depth, ingress_fraction=0.1):
 ```
 
 Geometry:
-```
-1.0  ─────┐         ┌─────    out of transit
-          ╲         ╱          ingress / egress (10% of duration each)
-1-d  ─────╲───────╱─────       flat bottom
-```
+![ExoHunter Pipeline](imgs/trapezoidal.png)
 
 Implemented with vectorized numpy operations (no Python loops):
 ```python
@@ -542,28 +486,7 @@ messages in the plot panels.
 
 ### 6.5 Callback chain
 
-```
-[data-source-selector] ──> [switch_data_source] ──> pipeline-data Store
-                                                          |
-                            ┌─────────────────────────────┤
-                            v                             v
-                   [update_sky_map]           [update_candidate_table]
-                            |                    |         |
-                            v                    v         v
-                   sky-map figure           table data   filters
-                            |                    |
-                            v                    v
-                [select_target] <── user click (sky map or table row)
-                            |
-                            v
-               [update_candidate_selector] ──> dropdown options
-                            |
-                            v
-               [update_lightcurve] + [update_phase_plot]
-                            |
-                            v
-                     figure outputs
-```
+![ExoHunter Pipeline](imgs/callback_chain.png)
 
 ### 6.6 Data sources
 
