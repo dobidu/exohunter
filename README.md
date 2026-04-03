@@ -93,6 +93,8 @@ The project serves a dual purpose:
 | Numba (prefix-sum bins) | **0.20 s** | Binned cumulative sums, O(n_periods × n_bins) |
 | lightkurve/astropy (C) | 1.19 s | Production baseline |
 
+*Measured on Intel Core i7-13650HX (20 threads), 16 GB RAM, WSL2 Linux.*
+
 ---
 
 ## Installation
