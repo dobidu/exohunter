@@ -1,6 +1,8 @@
 # ExoHunter
-
 **Concurrent exoplanet transit detection pipeline for NASA TESS data**
+
+![ExoHunter Banner](imgs/banner.png)
+
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -36,47 +38,40 @@ The project serves a dual purpose:
 
 ## How it works
 
-```
-  MAST Archive (NASA)
-        |
-        v
-  +--------------------------+
-  |  1. INGESTION            |   ThreadPoolExecutor (8 threads)
-  |  Download light curves   |   Retry with exponential backoff
-  |  from TESS via lightkurve|   Local FITS cache (astropy Table I/O)
-  +-----------+--------------+
-              |
-              v
-  +--------------------------+
-  |  2. PREPROCESSING        |   ProcessPoolExecutor (N-1 cores)
-  |  Remove NaNs & outliers  |   Sigma-clipping, Savitzky-Golay
-  |  Normalize (median -> 1) |   CDPP noise estimation
-  |  Flatten stellar var.    |
-  +-----------+--------------+
-              |
-              v
-  +--------------------------+
-  |  3. DETECTION            |   Two BLS implementations:
-  |  BLS periodogram search  |   - lightkurve/astropy (C, production)
-  |  6-criterion validation  |   - Numba prefix-sum (5.8x faster)
-  |  Transit model fitting   |
-  +-----------+--------------+
-              |
-              v
-  +--------------------------+
-  |  4. CATALOG              |   ExoFOP-TESS cross-matching
-  |  4-tier classification   |   Candidate scoring & ranking
-  |  Cross-match 7,900+ TOIs |   CSV/FITS export
-  +-----------+--------------+
-              |
-              v
-  +--------------------------+
-  |  5. DASHBOARD            |   Plotly Dash (DARKLY theme)
-  |  Sector selector         |   Classification filters
-  |  Sky map + light curve   |   New-candidate highlights
-  |  Phase diagram + table   |   Multi-planet support
-  +--------------------------+
-```
+![ExoHunter Pipeline](imgs/pipeline.png)
+
+### The ExoHunter Pipeline: Architectural Overview
+
+This infographic illustrates the five-stage **ExoHunter** data processing pipeline for concurrent exoplanet transit detection using NASA TESS data. The system is designed for high performance and scalability, moving sequentially from data ingestion to final candidate visualization.
+
+#### Layered Concurrency Model
+
+A key feature of the pipeline is its optimized concurrency model, which uses specialized thread and process pools to address different bottlenecks in the data workflow:
+
+1.  **INGESTION**
+    * **Description:** Data acquisition layer that downloads TESS light curves.
+    * **Architecture:** Uses a `ThreadPoolExecutor` (8 threads) to manage multiple simultaneous downloads, mitigating network latency. It includes retry logic with exponential backoff and a local FITS cache to save previously downloaded files, using `astropy.io`.
+    * **Icons:** A TESS telescope observing a star system and a direct download symbol.
+
+2.  **PREPROCESSING**
+    * **Description:** Signal cleaning and data conditioning.
+    * **Architecture:** Utilizes a `ProcessPoolExecutor` (all N-1 CPU cores) for true parallel processing of multiple stars, bypassing Python's GIL. This stage removes outliers via sigma-clipping, normalizes the flux, and detrends stellar variability using a Savitzky-Golay flattening filter.
+    * **Icons:** A "sigma-clipping" plot showing outlier removal and a "normalization/detrending" plot showing a stabilized light curve.
+
+3.  **DETECTION**
+    * **Description:** The core transit search engine.
+    * **Architecture:** Employs a JIT-compiled parallel loop via `numba.prange`. It features two implementations of the Box Least Squares (BLS) algorithm: a standard production-baseline C implementation and a custom **Numba prefix-sum optimization** that achieves **5.8x faster** processing than the C baseline for large period searches. It also performs transit validation.
+    * **Icons:** A BLS Periodogram graph (power vs. period) and side-by-side performance indicators for the 'C (baseline)' and 'Numba (optimized)' engines.
+
+4.  **CATALOG**
+    * **Description:** Results management and verification.
+    * **Action:** This stage manages the generated candidate catalog. It performs real-time cross-matching against the [ExoFOP-TESS TOI catalog](https://exofop.ipac.caltech.edu/tess/) and ranks candidates using a unique **4-tier classification** and scoring system. Data can be exported to standard CSV or scientific FITS table formats.
+    * **Icons:** A bar graph showing 'Ranking & Scoring' and an interactive globe icon symbolizing 'Cross-matching'.
+
+5.  **DASHBOARD**
+    * **Description:** Final visualization and analysis layer.
+    * **Technology:** Built with Plotly Dash (using a custom DARKLY theme), it presents pipeline results in an interactive interface. It includes a sky map with RA/Dec coordinates, detailed light curve plots with model fits, a phase diagram, and filterable candidate tables.
+    * **Icons:** A screen mockup showing the fully interactive dashboard application, displaying multiple data plots.
 
 ### Concurrency model
 
@@ -93,7 +88,7 @@ The project serves a dual purpose:
 | Numba (prefix-sum bins) | **0.20 s** | Binned cumulative sums, O(n_periods × n_bins) |
 | lightkurve/astropy (C) | 1.19 s | Production baseline |
 
-*Measured on Intel Core i7-13650HX (20 threads), 16 GB RAM, WSL2 Linux.*
+*Measured on Intel Core i7-13650HX (20 threads), 32 GB RAM, WSL2 Linux.*
 
 ---
 

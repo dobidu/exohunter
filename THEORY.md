@@ -26,24 +26,7 @@ blocks a small fraction of the star's light. This event is called a
 (a measurement we call a **light curve**), the transit appears as a
 periodic dip.
 
-```
-            planet
-              o
-         _____|_____
-        /     |     \       Star
-       |      |      |
-        \_____↓_____/
-              |
-         (to Earth)
-
-Brightness
-    ^
-1.0 ┤────┐         ┌────
-    │    │         │
-    │    │  dip    │        <- transit
-    │    └─────────┘
-    └───────────────────> Time
-```
+![Transit representation](imgs/transit.png)
 
 For example, if a Jupiter-sized planet transits a Sun-sized star, it
 blocks about **1%** of the star's light. An Earth-sized planet around
