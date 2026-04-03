@@ -229,6 +229,23 @@ data with trapezoidal model fit (depth, Rp/R\*, impact parameter),
 BLS periodogram with harmonics, and odd-even transit comparison for
 eclipsing binary discrimination. Saved to `data/reports/TIC_<number>.png`.
 
+### 6. Train and use the ML classifier
+
+```bash
+# Download Kepler KOI + ExoFOP training data (~7,600 labeled examples)
+python scripts/download_training_data.py
+
+# Train the Random Forest (3 classes: planet, eclipsing_binary, false_positive)
+python scripts/train_classifier.py --validate-tess
+
+# Run batch processing with ML classification
+python scripts/run_batch.py --sector 56 --classify --limit 20
+```
+
+The classifier adds `ml_class` and `ml_prob_planet` columns to the
+output CSV and the dashboard candidate table. See [ML_GUIDE.md](ML_GUIDE.md)
+for the full walkthrough.
+
 ---
 
 ## Cross-matching and candidate classification
@@ -293,6 +310,11 @@ exohunter/
 │   ├── crossmatch.py            #   ExoFOP-TESS 4-tier classification
 │   └── export.py                #   CSV and FITS export
 │
+├── classification/              # Layer 4b: ML classification
+│   ├── datasets.py              #   Download + prepare Kepler KOI / ExoFOP
+│   ├── features.py              #   Candidate → 10-feature vector
+│   └── model.py                 #   RandomForest train / save / load / predict
+│
 ├── dashboard/                   # Layer 5: Visualization
 │   ├── app.py                   #   Dash application factory
 │   ├── layouts.py               #   DARKLY layout with sector selector
@@ -314,6 +336,8 @@ exohunter/
 | `scripts/run_batch.py` | Batch sector processing (supports `--multi-sector` / `--single-sector`) |
 | `scripts/run_dashboard.py` | Dashboard server with demo data generator |
 | `scripts/inspect_candidate.py` | Deep 4-panel diagnostic report for a candidate (PNG) |
+| `scripts/download_training_data.py` | Download Kepler KOI + ExoFOP datasets for ML training |
+| `scripts/train_classifier.py` | Train the Random Forest transit classifier |
 
 ---
 
@@ -366,6 +390,7 @@ known periods and depths. It verifies:
 | Visualization | [plotly](https://plotly.com/python/), [dash](https://dash.plotly.com/), dash-bootstrap-components |
 | Concurrency | concurrent.futures (`ThreadPoolExecutor`, `ProcessPoolExecutor`), numba `prange` |
 | Catalog cross-matching | [ExoFOP-TESS](https://exofop.ipac.caltech.edu/tess/) TOI catalog (7,900+ entries) |
+| ML classification | scikit-learn (RandomForest), trained on [Kepler KOI](https://exoplanetarchive.ipac.caltech.edu/) (~7,600 labeled examples) |
 | Testing | pytest, pytest-cov |
 
 ---
@@ -376,6 +401,7 @@ known periods and depths. It verifies:
 |----------|----------|----------|
 | [THEORY.md](THEORY.md) | Students new to astronomy | Transit method, TESS mission, BLS algorithm, noise sources, validation criteria, TOI-700 system, further reading |
 | [METHODOLOGY.md](METHODOLOGY.md) | Developers | Pipeline stages, algorithms, data structures, configuration reference, dashboard callback chain, testing strategy |
+| [ML_GUIDE.md](ML_GUIDE.md) | Students / ML practitioners | Dataset download, feature engineering, model training, classifier usage, architecture, extension ideas |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Contributors | Setup, code conventions, commit format, open contribution areas by difficulty |
 
 ---
@@ -387,7 +413,8 @@ known periods and depths. It verifies:
 - [x] ~~Candidate scoring and ranking system~~
 - [x] ~~Numba BLS optimized with prefix-sum algorithm (5.8x faster than C)~~
 - [ ] BLS implementation in C with OpenMP for comparison benchmarks
-- [ ] ML candidate classification (Random Forest, then CNN on phase curves)
+- [x] ~~ML candidate classification (Random Forest trained on Kepler KOI, 3 classes)~~
+- [ ] CNN classification on phase curves (upgrade from tabular RF)
 - [ ] Real-time query to the NASA Exoplanet Archive via astroquery TAP
 - [ ] Automatic alerts for new candidate detections
 - [ ] VOTable export for Virtual Observatory interoperability

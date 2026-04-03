@@ -1,0 +1,18 @@
+{
+  "kepler_koi": {
+    "description": "Kepler Objects of Interest cumulative table (DR25). ~9,500 labeled candidates with dispositions (CONFIRMED, FALSE POSITIVE, CANDIDATE) and transit/stellar parameters.",
+    "url": "https://exoplanetarchive.ipac.caltech.edu/TAP/sync?query=select+kepid,koi_disposition,koi_pdisposition,koi_score,koi_period,koi_time0bk,koi_depth,koi_duration,koi_model_snr,koi_impact,koi_steff,koi_slogg,koi_srad,koi_fpflag_nt,koi_fpflag_ss,koi_fpflag_co,koi_fpflag_ec+from+cumulative&format=csv",
+    "output": "data/datasets/kepler_koi.csv",
+    "source": "NASA Exoplanet Archive",
+    "license": "Public domain (NASA)",
+    "reference": "https://exoplanetarchive.ipac.caltech.edu/docs/PurposeOfKOITable.html"
+  },
+  "exofop_toi": {
+    "description": "ExoFOP-TESS TOI catalog. ~7,900 TESS Objects of Interest with TFOPWG dispositions (KP, CP, FP, PC) and transit parameters.",
+    "url": "https://exofop.ipac.caltech.edu/tess/download_toi.php?sort=toi&output=csv",
+    "output": "data/datasets/exofop_toi.csv",
+    "source": "ExoFOP-TESS / IPAC / Caltech",
+    "license": "Public (NASA/IPAC)",
+    "reference": "https://exofop.ipac.caltech.edu/tess/"
+  }
+}

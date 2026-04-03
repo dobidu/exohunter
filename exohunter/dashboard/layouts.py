@@ -260,6 +260,9 @@ def make_candidate_table() -> dbc.Card:
                     {"name": "Score", "id": "score", "type": "numeric",
                      "format": dash_table.Format.Format(precision=1)},
                     {"name": "Classification", "id": "xmatch_class"},
+                    {"name": "ML Class", "id": "ml_class"},
+                    {"name": "ML P(planet)", "id": "ml_prob_planet", "type": "numeric",
+                     "format": dash_table.Format.Format(precision=3)},
                     {"name": "Status", "id": "status"},
                     {"name": "Flags", "id": "flags"},
                 ],
@@ -298,6 +301,14 @@ def make_candidate_table() -> dbc.Card:
                     {
                         "if": {"filter_query": '{xmatch_class} = "HARMONIC"'},
                         "backgroundColor": "rgba(255, 100, 0, 0.12)",
+                    },
+                    {
+                        "if": {"filter_query": '{ml_class} = "planet"'},
+                        "backgroundColor": "rgba(0, 200, 100, 0.12)",
+                    },
+                    {
+                        "if": {"filter_query": '{ml_class} = "eclipsing_binary"'},
+                        "backgroundColor": "rgba(255, 80, 80, 0.12)",
                     },
                     {
                         "if": {"filter_query": '{status} = "Rejected"'},

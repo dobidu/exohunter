@@ -159,6 +159,8 @@ def _load_sector_data(filename: str) -> dict:
             "status": status,
             "xmatch_class": xmatch_class,
             "score": score,
+            "ml_class": str(row.get("ml_class", "")) if not pd.isna(row.get("ml_class", "")) else "",
+            "ml_prob_planet": float(row.get("ml_prob_planet", 0)) if not pd.isna(row.get("ml_prob_planet", 0)) else 0.0,
             "flags": str(row.get("flags", "")) if not pd.isna(row.get("flags", "")) else "",
         })
 
@@ -347,6 +349,8 @@ def register_callbacks(app: Dash) -> None:
                 "snr": c.get("snr", 0),
                 "score": c.get("score", 0),
                 "xmatch_class": xmatch,
+                "ml_class": c.get("ml_class", ""),
+                "ml_prob_planet": c.get("ml_prob_planet", 0.0),
                 "status": c.get("status", "Candidate").capitalize(),
                 "flags": c.get("flags", ""),
             })

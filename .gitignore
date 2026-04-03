@@ -33,6 +33,8 @@ data/catalogs/*
 data/output/*
 data/results/*
 data/reports/*
+data/datasets/*
+data/models/*
 !data/**/.gitkeep
 
 # OS

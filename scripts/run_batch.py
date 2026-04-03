@@ -257,6 +257,7 @@ def run_batch(
     download_workers: int = config.DEFAULT_DOWNLOAD_WORKERS,
     multi_sector: bool = False,
     single_sector: bool = False,
+    classify: bool = False,
 ) -> tuple[CandidateCatalog, pd.DataFrame]:
     """Run the full ExoHunter pipeline on a TESS sector.
 
@@ -371,6 +372,19 @@ def run_batch(
     # ------------------------------------------------------------------
     logger.info("[Stage 3] Processing: preprocess → BLS → validate")
 
+    # Load ML classifier if requested
+    ml_pipeline = None
+    if classify:
+        try:
+            from exohunter.classification.model import load_model
+            ml_pipeline = load_model()
+            logger.info("ML classifier loaded — predictions will be added to results")
+        except FileNotFoundError:
+            logger.warning(
+                "No trained ML model found — skipping classification. "
+                "Run: python scripts/train_classifier.py"
+            )
+
     catalog = CandidateCatalog()
     summary_rows: list[dict] = []
     n_processed = 0
@@ -444,6 +458,20 @@ def run_batch(
                     catalog.add(candidate, validation)
                     status = xmatch_class.lower()
 
+            # ML classification (if model loaded)
+            ml_class = ""
+            ml_prob_planet = 0.0
+            if ml_pipeline is not None:
+                from exohunter.classification.features import candidate_to_features
+                from exohunter.classification.model import classify_candidates
+                import pandas as _pd
+
+                feat = candidate_to_features(candidate, validation)
+                feat_df = _pd.DataFrame([feat])
+                ml_result = classify_candidates(ml_pipeline, feat_df)
+                ml_class = str(ml_result.iloc[0]["ml_class"])
+                ml_prob_planet = float(ml_result.iloc[0].get("ml_prob_planet", 0.0))
+
             # Record baseline info for multi-sector tracking
             baseline_days = float(processed.time[-1] - processed.time[0])
 
@@ -451,6 +479,8 @@ def run_batch(
                 "tic_id": tic_id,
                 "status": status,
                 "xmatch_class": xmatch_class,
+                "ml_class": ml_class,
+                "ml_prob_planet": ml_prob_planet,
                 "period": candidate.period,
                 "depth": candidate.depth,
                 "snr": candidate.snr,
@@ -627,6 +657,18 @@ def parse_args() -> argparse.Namespace:
         help="Number of concurrent download threads",
     )
 
+    parser.add_argument(
+        "--classify",
+        action="store_true",
+        default=False,
+        help=(
+            "Run the ML classifier on each candidate after BLS detection. "
+            "Requires a trained model at data/models/transit_classifier.joblib "
+            "(run train_classifier.py first). Adds ml_class and ml_prob_planet "
+            "columns to the output CSV."
+        ),
+    )
+
     # Sector download mode
     sector_mode = parser.add_mutually_exclusive_group()
     sector_mode.add_argument(
@@ -668,6 +710,7 @@ def main() -> None:
         download_workers=args.workers,
         multi_sector=args.multi_sector,
         single_sector=args.single_sector,
+        classify=args.classify,
     )
 
     # Save results
