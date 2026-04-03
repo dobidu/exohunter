@@ -28,6 +28,7 @@ env/
 data/cache/
 data/catalogs/
 data/output/
+data/results/
 
 # OS
 .DS_Store

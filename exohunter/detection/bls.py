@@ -152,9 +152,28 @@ def run_bls_lightkurve(
 # ---------------------------------------------------------------------------
 # Numba implementation — pedagogical from-scratch BLS
 # ---------------------------------------------------------------------------
+#
+# This uses a binned cumulative-sum approach (similar to astropy's C
+# implementation) instead of brute-force sliding.  For each trial
+# period:
+#   1. Phase-fold and sort the data.
+#   2. Bin the phase into N_BINS uniform bins, accumulating flux sums
+#      and counts in each bin.
+#   3. Build prefix sums over the bins.
+#   4. For each trial duration, slide a window of the appropriate
+#      number of bins and compute the in-transit / out-of-transit
+#      means in O(1) per position using the prefix sums.
+#
+# Complexity: O(n_periods × (n_points + n_bins × n_durations))
+# vs. the brute-force O(n_periods × n_bins × n_durations × n_points).
+# ---------------------------------------------------------------------------
 
 try:
     import numba
+
+    # Number of phase bins — controls the epoch resolution.
+    # 300 bins ≈ 0.3% of the period, fine enough for TESS 2-min cadence.
+    _N_PHASE_BINS: int = 300
 
     @numba.njit(parallel=True)
     def _bls_core(
@@ -165,20 +184,9 @@ try:
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Core BLS computation accelerated with Numba.
 
-        For each trial period and duration, this function phase-folds the
-        light curve and finds the box depth that minimises the squared
-        residuals.
-
-        The algorithm:
-            1. For each period P in the grid:
-               a. Phase-fold the time array: φ = (t mod P) / P
-               b. For each duration d:
-                  - Slide a box of width d/P across the phase
-                  - Compute the mean in-transit and out-of-transit flux
-                  - The "power" is proportional to n_in × n_out × δ²
-               c. Keep the (duration, phase) that maximises the power
-            2. Return the best power, depth, duration, and epoch for
-               each trial period.
+        Uses a binned prefix-sum algorithm: for each trial period, the
+        phase-folded data is binned, then a sliding window over the
+        bin sums evaluates every trial epoch in O(1) per position.
 
         Args:
             time: Array of timestamps.
@@ -192,11 +200,16 @@ try:
         """
         n_periods = len(periods)
         n_points = len(time)
+        n_bins = _N_PHASE_BINS
 
         powers = np.zeros(n_periods, dtype=np.float64)
         depths = np.zeros(n_periods, dtype=np.float64)
         best_durations = np.zeros(n_periods, dtype=np.float64)
         epochs = np.zeros(n_periods, dtype=np.float64)
+
+        total_flux = 0.0
+        for k in range(n_points):
+            total_flux += flux[k]
 
         for i in numba.prange(n_periods):
             period = periods[i]
@@ -205,61 +218,62 @@ try:
             best_dur = durations[0]
             best_epoch = 0.0
 
-            # Phase-fold the time series
-            phase = np.empty(n_points, dtype=np.float64)
+            # --- Step 1: Bin the phase-folded data ---
+            # Each bin accumulates the sum of flux values and a count
+            # of how many points fell into it.
+            bin_flux = np.zeros(n_bins, dtype=np.float64)
+            bin_count = np.zeros(n_bins, dtype=np.int64)
+
             for k in range(n_points):
-                phase[k] = (time[k] % period) / period
+                phase = (time[k] % period) / period
+                b = int(phase * n_bins)
+                if b >= n_bins:
+                    b = n_bins - 1
+                bin_flux[b] += flux[k]
+                bin_count[b] += 1
 
+            # --- Step 2: For each trial duration, slide over bins ---
             for j in range(len(durations)):
-                duration = durations[j]
-                fractional_duration = duration / period
+                dur = durations[j]
+                frac_dur = dur / period
 
-                if fractional_duration >= 0.5:
-                    # Duration too long for this period — skip
+                if frac_dur >= 0.5:
                     continue
 
-                # Number of phase bins to slide
-                n_bins = 200
+                # How many bins does this duration span?
+                w = max(1, int(frac_dur * n_bins + 0.5))
+
+                # Initialize the first window [0, w)
+                s_in = 0.0
+                c_in = 0
+                for b in range(w):
+                    s_in += bin_flux[b]
+                    c_in += bin_count[b]
+
+                # Slide the window across all n_bins starting positions
                 for b in range(n_bins):
-                    phase_center = b / n_bins
+                    c_out = n_points - c_in
+                    if c_in >= 3 and c_out >= 3:
+                        mean_in = s_in / c_in
+                        mean_out = (total_flux - s_in) / c_out
+                        delta = mean_out - mean_in
 
-                    # Count in-transit and out-of-transit sums
-                    sum_in = 0.0
-                    sum_out = 0.0
-                    n_in = 0
-                    n_out = 0
+                        if delta > 0.0:
+                            power = (c_in * c_out * delta * delta) / n_points
+                            if power > best_power:
+                                best_power = power
+                                best_depth = delta
+                                best_dur = dur
+                                # Epoch = center of the window
+                                center_bin = (b + w / 2.0) % n_bins
+                                best_epoch = (center_bin / n_bins) * period
 
-                    for k in range(n_points):
-                        # Distance in phase (wrapping around)
-                        diff = abs(phase[k] - phase_center)
-                        if diff > 0.5:
-                            diff = 1.0 - diff
-
-                        if diff < fractional_duration / 2.0:
-                            sum_in += flux[k]
-                            n_in += 1
-                        else:
-                            sum_out += flux[k]
-                            n_out += 1
-
-                    if n_in < 3 or n_out < 3:
-                        continue
-
-                    mean_in = sum_in / n_in
-                    mean_out = sum_out / n_out
-                    delta = mean_out - mean_in  # transit depth
-
-                    if delta <= 0:
-                        continue
-
-                    # BLS power ~ n_in × n_out × δ² / (n_in + n_out)
-                    power = (n_in * n_out * delta * delta) / (n_in + n_out)
-
-                    if power > best_power:
-                        best_power = power
-                        best_depth = delta
-                        best_dur = duration
-                        best_epoch = phase_center * period
+                    # Slide: remove the leftmost bin, add the next one
+                    s_in -= bin_flux[b % n_bins]
+                    c_in -= bin_count[b % n_bins]
+                    add_bin = (b + w) % n_bins
+                    s_in += bin_flux[add_bin]
+                    c_in += bin_count[add_bin]
 
             powers[i] = best_power
             depths[i] = best_depth

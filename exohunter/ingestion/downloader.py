@@ -33,6 +33,9 @@ def search_targets(
 ) -> list[str]:
     """Search for TIC IDs observed in a given TESS sector.
 
+    Uses the MAST Observations API to find all TESS time-series
+    observations in the given sector with 2-minute cadence (SPOC).
+
     Args:
         sector: TESS sector number (1, 2, 3, …).
         author: Data product author. ``"SPOC"`` is the Science Processing
@@ -43,17 +46,35 @@ def search_targets(
         A list of TIC ID strings, e.g. ``["TIC 150428135", ...]``.
     """
     logger.info("Searching for targets in TESS sector %d (author=%s)", sector, author)
-    search_result = lk.search_lightcurve(
-        target=f"sector {sector}",
-        mission="TESS",
-        author=author,
+
+    from astroquery.mast import Observations
+
+    # Query MAST for all TESS time-series observations in this sector.
+    # sequence_number corresponds to the TESS sector.
+    # t_exptime=[100, 200] selects 2-minute cadence (~120s exposures).
+    obs_table = Observations.query_criteria(
+        obs_collection="TESS",
+        dataproduct_type="timeseries",
+        sequence_number=sector,
+        t_exptime=[100, 200],
     )
 
-    # Extract unique TIC IDs from the search result table
+    if obs_table is None or len(obs_table) == 0:
+        logger.warning("No observations found in sector %d", sector)
+        return []
+
+    # Extract unique TIC IDs from the target_name column.
+    # MAST returns target names like "150428135" (numeric) — we prefix "TIC ".
     tic_ids: list[str] = []
     seen: set[str] = set()
-    for row in search_result:
-        tic_id = str(row.target_name)
+    for row in obs_table:
+        raw_name = str(row["target_name"]).strip()
+        # Normalize to "TIC <number>"
+        if raw_name.upper().startswith("TIC"):
+            tic_id = raw_name
+        else:
+            tic_id = f"TIC {raw_name}"
+
         if tic_id not in seen:
             seen.add(tic_id)
             tic_ids.append(tic_id)

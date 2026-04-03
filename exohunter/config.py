@@ -16,9 +16,10 @@ DATA_DIR: Path = PROJECT_ROOT / "data"
 CACHE_DIR: Path = DATA_DIR / "cache"
 CATALOG_DIR: Path = DATA_DIR / "catalogs"
 OUTPUT_DIR: Path = DATA_DIR / "output"
+RESULTS_DIR: Path = DATA_DIR / "results"
 
 # Ensure data directories exist at import time
-for _dir in (CACHE_DIR, CATALOG_DIR, OUTPUT_DIR):
+for _dir in (CACHE_DIR, CATALOG_DIR, OUTPUT_DIR, RESULTS_DIR):
     _dir.mkdir(parents=True, exist_ok=True)
 
 # ---------------------------------------------------------------------------
