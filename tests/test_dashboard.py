@@ -229,6 +229,41 @@ class TestFigureGeneration:
         assert "Binned" in trace_names
         assert "Transit model" in trace_names
 
+    def test_periodogram_plot(self) -> None:
+        """make_periodogram_plot must show the BLS power spectrum with peak marked."""
+        from exohunter.dashboard.figures import make_periodogram_plot
+        from tests.conftest import make_candidate
+
+        periods = np.linspace(0.5, 20, 1000)
+        power = np.random.default_rng(42).random(1000) * 0.001
+        candidate = make_candidate(period=8.0, name="Test Planet")
+
+        fig = make_periodogram_plot(periods, power, candidate)
+
+        assert len(fig.data) >= 1  # at least the power trace
+        assert "Periodogram" in fig.layout.title.text
+        # Should have vertical lines (shapes) for peak + harmonics
+        assert len(fig.layout.shapes) >= 1
+
+    def test_odd_even_plot(self) -> None:
+        """make_odd_even_plot must produce traces for odd and even transits."""
+        from exohunter.dashboard.figures import make_odd_even_plot
+        from tests.conftest import make_candidate, make_synthetic_transit_lc
+
+        lc = make_synthetic_transit_lc(
+            period=5.0, depth=0.01, duration=0.15, noise=0.0005, n_points=20000,
+        )
+        candidate = make_candidate(period=5.0, epoch=2.5, duration=0.15, depth=0.01)
+
+        fig = make_odd_even_plot(lc.time.value, lc.flux.value, candidate)
+
+        # Should have odd and even traces
+        assert len(fig.data) >= 2
+        # Title must contain consistency verdict
+        assert "CONSISTENT" in fig.layout.title.text or "INCONSISTENT" in fig.layout.title.text
+        # Should have an annotation with depth difference
+        assert len(fig.layout.annotations) >= 1
+
     def test_empty_figure_has_message(self) -> None:
         """make_empty_figure must display the given message."""
         from exohunter.dashboard.figures import make_empty_figure

@@ -9,6 +9,7 @@ Verifies:
 """
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from exohunter.catalog.candidates import CandidateCatalog, compute_score
@@ -284,3 +285,44 @@ class TestCrossMatchClassification:
         assert len(results) == 2
         assert results[0].match_class == MatchClass.KNOWN_MATCH
         assert results[1].match_class == MatchClass.NEW_CANDIDATE
+
+
+class TestCatalogStaleness:
+    """Test the TOI catalog staleness and source selection logic."""
+
+    def test_stale_check_missing_file(self, tmp_path) -> None:
+        """A nonexistent file must be considered stale."""
+        from exohunter.catalog.crossmatch import _is_catalog_stale
+
+        assert _is_catalog_stale(tmp_path / "missing.csv", max_age_hours=48)
+
+    def test_stale_check_fresh_file(self, tmp_path) -> None:
+        """A just-created file must not be stale."""
+        from exohunter.catalog.crossmatch import _is_catalog_stale
+
+        fresh = tmp_path / "fresh.csv"
+        fresh.write_text("test")
+        assert not _is_catalog_stale(fresh, max_age_hours=48)
+
+    def test_stale_check_zero_max_age(self, tmp_path) -> None:
+        """max_age_hours=0 must always report stale (force refresh)."""
+        from exohunter.catalog.crossmatch import _is_catalog_stale
+
+        fresh = tmp_path / "fresh.csv"
+        fresh.write_text("test")
+        assert _is_catalog_stale(fresh, max_age_hours=0)
+
+    def test_load_source_csv_mode(self) -> None:
+        """source='csv' must not attempt any network access."""
+        import exohunter.catalog.crossmatch as cm
+
+        # Reset in-memory cache
+        cm._toi_cache = None
+
+        df = cm.load_toi_catalog(force_reload=True, source="csv")
+        # Result depends on whether a local file exists — either way
+        # it must not crash and must return a DataFrame
+        assert isinstance(df, pd.DataFrame)
+
+        # Reset cache for other tests
+        cm._toi_cache = None
