@@ -363,7 +363,7 @@ scores, and manage the results collection.
 **Key files**:
 - `crossmatch.py` — TOI catalog loader + 4-tier classification
 - `candidates.py` — `CandidateCatalog` + scoring
-- `export.py` — CSV/FITS export
+- `export.py` — CSV, FITS, and VOTable export
 
 ### 5.3 Cross-matching
 

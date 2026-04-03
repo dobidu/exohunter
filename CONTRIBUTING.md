@@ -137,7 +137,7 @@ Each of these is a self-contained project that a student can take on:
 
 ### Intermediate
 
-- Implement VOTable export in `catalog/export.py` using `astropy.io.votable`
+- ~~Implement VOTable export~~ (done — see `export_to_votable()` in `catalog/export.py`)
 - Add a stellar classification panel to the dashboard
 - Implement a CLI progress bar for batch processing
 - Create a configuration file parser (YAML/TOML) for pipeline parameters

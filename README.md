@@ -321,7 +321,7 @@ exohunter/
 ├── catalog/                     # Layer 4: Results management
 │   ├── candidates.py            #   Catalog with scoring and ranking
 │   ├── crossmatch.py            #   ExoFOP-TESS 4-tier classification
-│   └── export.py                #   CSV and FITS export
+│   └── export.py                #   CSV, FITS, and VOTable export
 │
 ├── classification/              # Layer 4b: ML classification
 │   ├── datasets.py              #   Download + prepare Kepler KOI / ExoFOP
