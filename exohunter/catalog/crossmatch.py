@@ -1,33 +1,31 @@
-"""Cross-matching with the ExoFOP-TESS TOI catalog.
+"""Cross-matching with the TESS TOI catalog (live + offline).
 
-Compares ExoHunter candidates against the list of known TESS Objects
-of Interest (TOIs) from the ExoFOP-TESS database to classify each
-candidate into one of four categories:
+Compares ExoHunter candidates against known TESS Objects of Interest
+(TOIs) to classify each candidate into one of four categories:
 
-    - **KNOWN_MATCH**: TIC ID is in the TOI catalog AND the detected
-      period matches a known TOI period within tolerance.  This is a
-      re-detection of a known signal — good for pipeline validation.
+    - **KNOWN_MATCH**: TIC ID + period match a known TOI.
+    - **KNOWN_TOI**: TIC ID is in the catalog but at a different period.
+    - **HARMONIC**: Period is a harmonic (2×, 3×, 0.5×, 1/3×) of a known TOI.
+    - **NEW_CANDIDATE**: TIC ID is NOT in any catalog.
 
-    - **KNOWN_TOI**: TIC ID is in the TOI catalog but our detected
-      period does not match any catalogued period.  Could be a new
-      planet in a known multi-planet system, or a systematic artefact.
+Catalog loading uses a three-tier fallback strategy:
 
-    - **HARMONIC**: Our detected period is a harmonic (2×, 3×, 0.5×,
-      1/3×) of a known TOI period.  Likely an alias, not a new planet.
+    1. **NASA Exoplanet Archive TAP API** — live query for the latest
+       TOI table.  The result is cached to disk and re-used until it
+       exceeds ``TOI_CATALOG_MAX_AGE_HOURS`` (default 48 h).
+    2. **Local CSV** — a previously downloaded static CSV from ExoFOP
+       or the TAP cache file (``data/catalogs/toi_catalog.csv``).
+    3. **Built-in reference table** — a small hardcoded table of
+       well-known planets for fully offline testing.
 
-    - **NEW_CANDIDATE**: TIC ID is NOT in any catalog.  This is the
-      most exciting outcome — a potentially undiscovered exoplanet.
-
-The TOI catalog is loaded from a static CSV downloaded from ExoFOP:
-    https://exofop.ipac.caltech.edu/tess/download_toi.php?sort=toi&output=csv
-
-To update the catalog, run::
+To force a refresh::
 
     python -m exohunter.catalog.crossmatch --update
 """
 
 from __future__ import annotations
 
+import time as time_module
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -94,21 +92,119 @@ class CrossMatchResult:
 
 
 # ---------------------------------------------------------------------------
-# TOI catalog loader
+# TOI catalog loading — three-tier fallback
 # ---------------------------------------------------------------------------
 
 _TOI_CATALOG_PATH: Path = config.CATALOG_DIR / "toi_catalog.csv"
 
-# In-memory cache of the loaded catalog (loaded once per process)
+# In-memory cache (loaded once per process unless force_reload)
 _toi_cache: pd.DataFrame | None = None
 
 
-def _download_toi_catalog(output_path: Path | None = None) -> Path:
-    """Download the TOI catalog from ExoFOP-TESS.
+def _is_catalog_stale(path: Path, max_age_hours: float) -> bool:
+    """Check if a cached catalog file is older than the allowed age.
 
     Args:
-        output_path: Where to save the CSV. Defaults to
-            ``data/catalogs/toi_catalog.csv``.
+        path: Path to the cached CSV.
+        max_age_hours: Maximum age in hours before the file is stale.
+
+    Returns:
+        ``True`` if the file does not exist or is older than
+        ``max_age_hours``.
+    """
+    if not path.exists():
+        return True
+
+    if max_age_hours <= 0:
+        return True  # 0 means always refresh
+
+    age_seconds = time_module.time() - path.stat().st_mtime
+    age_hours = age_seconds / 3600.0
+    return age_hours > max_age_hours
+
+
+def _fetch_toi_via_tap(output_path: Path | None = None) -> pd.DataFrame | None:
+    """Fetch the TOI catalog from the NASA Exoplanet Archive via TAP.
+
+    Uses the ``astroquery.ipac.nexsci.nasa_exoplanet_archive`` TAP
+    service to query the ``toi`` table for all TOIs with their TIC IDs,
+    periods, and dispositions.
+
+    Args:
+        output_path: Where to cache the result as CSV. If ``None``,
+            uses ``data/catalogs/toi_catalog.csv``.
+
+    Returns:
+        A pandas DataFrame with the TOI data, or ``None`` on failure.
+    """
+    if output_path is None:
+        output_path = _TOI_CATALOG_PATH
+
+    try:
+        from astroquery.ipac.nexsci.nasa_exoplanet_archive import NasaExoplanetArchive
+
+        logger.info("Querying NASA Exoplanet Archive (TAP) for TOI catalog...")
+
+        table = NasaExoplanetArchive.query_criteria(
+            table="toi",
+            select="tid,toi,pl_orbper,pl_trandep,pl_trandur,tfopwg_disp",
+        )
+
+        if table is None or len(table) == 0:
+            logger.warning("TAP query returned no results")
+            return None
+
+        df = table.to_pandas()
+
+        # Rename to the ExoHunter standard column names
+        col_map = {
+            "tid": "tic_id",
+            "toi": "toi",
+            "pl_orbper": "period",
+            "pl_trandep": "depth_ppm",
+            "pl_trandur": "duration_hours",
+            "tfopwg_disp": "disposition",
+        }
+        df = df.rename(columns=col_map)
+
+        # Ensure TIC IDs are integers
+        if "tic_id" in df.columns:
+            df["tic_id"] = pd.to_numeric(df["tic_id"], errors="coerce")
+            df = df.dropna(subset=["tic_id"])
+            df["tic_id"] = df["tic_id"].astype(int)
+
+        if "period" in df.columns:
+            df["period"] = pd.to_numeric(df["period"], errors="coerce")
+
+        # Cache to disk
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        df.to_csv(output_path, index=False)
+
+        logger.info(
+            "TOI catalog fetched via TAP: %d entries, cached to %s",
+            len(df), output_path,
+        )
+        return df
+
+    except ImportError:
+        logger.warning(
+            "astroquery.ipac.nexsci not available — cannot query TAP. "
+            "Install astroquery >= 0.4 for live queries."
+        )
+        return None
+    except Exception:
+        logger.warning("TAP query failed — will try local CSV fallback", exc_info=True)
+        return None
+
+
+def _download_toi_exofop(output_path: Path | None = None) -> Path:
+    """Download the TOI catalog from ExoFOP-TESS (HTTP fallback).
+
+    This is the legacy download method, kept as a second fallback
+    if the TAP query is unavailable.
+
+    Args:
+        output_path: Where to save the CSV.
 
     Returns:
         Path to the downloaded file.
@@ -119,39 +215,83 @@ def _download_toi_catalog(output_path: Path | None = None) -> Path:
         output_path = _TOI_CATALOG_PATH
 
     url = "https://exofop.ipac.caltech.edu/tess/download_toi.php?sort=toi&output=csv"
-    logger.info("Downloading TOI catalog from ExoFOP-TESS...")
+    logger.info("Downloading TOI catalog from ExoFOP-TESS (HTTP)...")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    urllib.request.urlretrieve(url, output_path)
 
-    try:
-        urllib.request.urlretrieve(url, output_path)
-        # Verify the file is valid CSV
-        df = pd.read_csv(output_path, comment="#")
-        logger.info(
-            "TOI catalog downloaded: %d entries, saved to %s",
-            len(df), output_path,
-        )
-        return output_path
-    except Exception:
-        logger.exception("Failed to download TOI catalog")
-        raise
+    df = pd.read_csv(output_path, comment="#")
+    logger.info("TOI catalog downloaded (ExoFOP): %d entries", len(df))
+    return output_path
 
 
-def load_toi_catalog(force_reload: bool = False) -> pd.DataFrame:
-    """Load the TOI catalog into memory.
+def _parse_local_csv(path: Path) -> pd.DataFrame:
+    """Parse a local TOI catalog CSV into a normalized DataFrame.
 
-    Reads the static CSV from ``data/catalogs/toi_catalog.csv``.
-    The catalog is cached in memory after the first load.
-
-    The relevant columns are:
-        - ``TIC ID``: numeric TIC identifier
-        - ``Period (days)``: orbital period
-        - ``TOI``: TOI number (e.g. 700.01)
-        - ``Depth (ppm)``: transit depth in parts per million
-        - ``TFOPWG Disposition``: community disposition (PC, FP, KP, etc.)
+    Handles both TAP-format (``tic_id``, ``period``) and ExoFOP-format
+    (``TIC ID``, ``Period (days)``) column names.
 
     Args:
-        force_reload: If ``True``, re-read from disk even if cached.
+        path: Path to the CSV file.
+
+    Returns:
+        A normalized DataFrame with ``tic_id`` (int), ``period`` (float),
+        ``toi``, ``disposition`` columns.
+    """
+    df = pd.read_csv(path, comment="#")
+
+    # Normalize column names from either format
+    col_map = {}
+    for col in df.columns:
+        lower = col.strip().lower()
+        if lower in ("tic id", "tic_id", "tid"):
+            col_map[col] = "tic_id"
+        elif lower in ("period (days)", "period", "pl_orbper"):
+            col_map[col] = "period"
+        elif lower == "toi":
+            col_map[col] = "toi"
+        elif lower in ("depth (ppm)", "depth ppm", "pl_trandep"):
+            col_map[col] = "depth_ppm"
+        elif "disposition" in lower or lower == "tfopwg_disp":
+            col_map[col] = "disposition"
+    df = df.rename(columns=col_map)
+
+    if "tic_id" in df.columns:
+        df["tic_id"] = pd.to_numeric(df["tic_id"], errors="coerce")
+        df = df.dropna(subset=["tic_id"])
+        df["tic_id"] = df["tic_id"].astype(int)
+
+    if "period" in df.columns:
+        df["period"] = pd.to_numeric(df["period"], errors="coerce")
+
+    return df
+
+
+def load_toi_catalog(
+    force_reload: bool = False,
+    source: str = "auto",
+) -> pd.DataFrame:
+    """Load the TOI catalog with three-tier fallback.
+
+    Loading strategy (``source="auto"``):
+        1. If the cached CSV exists and is fresh (< ``TOI_CATALOG_MAX_AGE_HOURS``),
+           load it from disk.
+        2. If stale or missing, try a live TAP query to the NASA
+           Exoplanet Archive (caches the result to disk).
+        3. If TAP fails, try downloading from ExoFOP-TESS (HTTP).
+        4. If that also fails, load whatever CSV exists on disk
+           (even if stale).
+        5. If no CSV exists at all, return an empty DataFrame
+           (the built-in reference table will be used as final fallback
+           in ``crossmatch_candidate``).
+
+    Args:
+        force_reload: If ``True``, bypass the in-memory cache and
+            re-read from disk (or re-fetch from network).
+        source: Loading strategy:
+            - ``"auto"`` — three-tier fallback (default)
+            - ``"tap"`` — force TAP query
+            - ``"csv"`` — load local CSV only (no network)
 
     Returns:
         A DataFrame with one row per TOI entry.
@@ -161,54 +301,57 @@ def load_toi_catalog(force_reload: bool = False) -> pd.DataFrame:
     if _toi_cache is not None and not force_reload:
         return _toi_cache
 
-    if not _TOI_CATALOG_PATH.exists():
-        logger.warning(
-            "TOI catalog not found at %s — cross-matching will use "
-            "built-in reference table only. Run "
-            "'python -m exohunter.catalog.crossmatch --update' to download.",
-            _TOI_CATALOG_PATH,
-        )
-        _toi_cache = pd.DataFrame()
-        return _toi_cache
+    max_age = config.TOI_CATALOG_MAX_AGE_HOURS
+    df = pd.DataFrame()
 
-    try:
-        df = pd.read_csv(_TOI_CATALOG_PATH, comment="#")
+    if source == "csv":
+        # Local CSV only — no network
+        if _TOI_CATALOG_PATH.exists():
+            df = _parse_local_csv(_TOI_CATALOG_PATH)
+            logger.info("Loaded TOI catalog (local CSV): %d entries", len(df))
+        else:
+            logger.warning(
+                "TOI catalog not found at %s — using built-in reference only",
+                _TOI_CATALOG_PATH,
+            )
 
-        # Normalize column names (ExoFOP uses varying formats)
-        col_map = {}
-        for col in df.columns:
-            lower = col.strip().lower()
-            if lower == "tic id" or lower == "tic_id":
-                col_map[col] = "tic_id"
-            elif lower == "period (days)" or lower == "period":
-                col_map[col] = "period"
-            elif lower == "toi":
-                col_map[col] = "toi"
-            elif lower == "depth (ppm)" or lower == "depth ppm":
-                col_map[col] = "depth_ppm"
-            elif "disposition" in lower:
-                col_map[col] = "disposition"
+    elif source == "tap":
+        # Force TAP query
+        tap_df = _fetch_toi_via_tap()
+        if tap_df is not None:
+            df = tap_df
+        else:
+            logger.warning("TAP query failed — no catalog loaded")
 
-        df = df.rename(columns=col_map)
+    else:
+        # Auto: check freshness → TAP → ExoFOP HTTP → stale CSV
+        if not _is_catalog_stale(_TOI_CATALOG_PATH, max_age):
+            df = _parse_local_csv(_TOI_CATALOG_PATH)
+            logger.info(
+                "Loaded TOI catalog (cached, <%.0fh old): %d entries",
+                max_age, len(df),
+            )
+        else:
+            # Try TAP first
+            tap_df = _fetch_toi_via_tap()
+            if tap_df is not None:
+                df = tap_df
+            else:
+                # Try ExoFOP HTTP download
+                try:
+                    _download_toi_exofop()
+                    df = _parse_local_csv(_TOI_CATALOG_PATH)
+                except Exception:
+                    logger.warning("ExoFOP download also failed", exc_info=True)
+                    # Last resort: load stale CSV if it exists
+                    if _TOI_CATALOG_PATH.exists():
+                        df = _parse_local_csv(_TOI_CATALOG_PATH)
+                        logger.info(
+                            "Using stale TOI catalog from disk: %d entries", len(df),
+                        )
 
-        # Ensure TIC IDs are integers for fast lookup
-        if "tic_id" in df.columns:
-            df["tic_id"] = pd.to_numeric(df["tic_id"], errors="coerce")
-            df = df.dropna(subset=["tic_id"])
-            df["tic_id"] = df["tic_id"].astype(int)
-
-        # Convert period to float, dropping entries without a period
-        if "period" in df.columns:
-            df["period"] = pd.to_numeric(df["period"], errors="coerce")
-
-        _toi_cache = df
-        logger.info("Loaded TOI catalog: %d entries from %s", len(df), _TOI_CATALOG_PATH)
-        return _toi_cache
-
-    except Exception:
-        logger.exception("Failed to parse TOI catalog at %s", _TOI_CATALOG_PATH)
-        _toi_cache = pd.DataFrame()
-        return _toi_cache
+    _toi_cache = df
+    return _toi_cache
 
 
 def _extract_tic_number(tic_id: str) -> int | None:
@@ -249,8 +392,6 @@ KNOWN_PLANETS: dict[int, list[dict]] = {
 # Cross-matching logic
 # ---------------------------------------------------------------------------
 
-# Harmonic ratios to test: if candidate_period / known_period is close
-# to any of these, the candidate is classified as HARMONIC.
 _HARMONIC_RATIOS: list[float] = [0.5, 2.0, 1.0 / 3.0, 3.0]
 
 
@@ -277,8 +418,6 @@ def crossmatch_candidate(
         period_tolerance: Maximum period difference (days) for a
             ``KNOWN_MATCH`` classification.
         harmonic_tolerance: Relative tolerance for harmonic matching.
-            A ratio within ``harmonic_tolerance`` of a harmonic integer
-            ratio (2:1, 3:1, 1:2, 1:3) triggers a ``HARMONIC`` flag.
 
     Returns:
         A ``CrossMatchResult`` with the classification.
@@ -401,7 +540,7 @@ def crossmatch_batch(
 
 
 # ---------------------------------------------------------------------------
-# CLI: download/update the TOI catalog
+# CLI: update/inspect the TOI catalog
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
@@ -413,7 +552,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--update",
         action="store_true",
-        help="Download the latest TOI catalog from ExoFOP-TESS",
+        help="Fetch the latest TOI catalog (TAP first, then ExoFOP HTTP)",
+    )
+    parser.add_argument(
+        "--source",
+        choices=["auto", "tap", "csv"],
+        default="auto",
+        help="Catalog source: auto (TAP → CSV), tap (TAP only), csv (local only)",
     )
     parser.add_argument(
         "--info",
@@ -423,13 +568,16 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.update:
-        path = _download_toi_catalog()
-        print(f"TOI catalog saved to: {path}")
+        df = load_toi_catalog(force_reload=True, source=args.source)
+        if not df.empty:
+            print(f"TOI catalog loaded: {len(df)} entries")
+        else:
+            print("Failed to load TOI catalog.")
 
     if args.info or not args.update:
-        df = load_toi_catalog(force_reload=True)
+        df = load_toi_catalog(force_reload=True, source=args.source)
         if df.empty:
-            print("No TOI catalog loaded. Run with --update to download.")
+            print("No TOI catalog loaded. Run with --update to fetch.")
         else:
             print(f"TOI catalog: {len(df)} entries")
             if "tic_id" in df.columns:
@@ -438,3 +586,9 @@ if __name__ == "__main__":
                 print(f"\nDisposition breakdown:")
                 for disp, count in df["disposition"].value_counts().items():
                     print(f"  {disp}: {count}")
+            # Show freshness
+            if _TOI_CATALOG_PATH.exists():
+                age_hours = (time_module.time() - _TOI_CATALOG_PATH.stat().st_mtime) / 3600
+                max_age = config.TOI_CATALOG_MAX_AGE_HOURS
+                status = "fresh" if age_hours <= max_age else "stale"
+                print(f"\nCache age: {age_hours:.1f} hours ({status}, max={max_age}h)")

@@ -119,10 +119,13 @@ pytest                       # 28 tests, all offline
 python -m exohunter.catalog.crossmatch --update
 ```
 
-Downloads ~7,900 TOIs from
-[ExoFOP-TESS](https://exofop.ipac.caltech.edu/tess/) to
-`data/catalogs/toi_catalog.csv`. Without it, cross-matching uses a
-small built-in reference table (TOI-700, L 98-59).
+Fetches the latest TOI catalog from the
+[NASA Exoplanet Archive](https://exoplanetarchive.ipac.caltech.edu/)
+via TAP API (~7,900 TOIs), cached to `data/catalogs/toi_catalog.csv`.
+The cache auto-refreshes every 48 hours (configurable via
+`TOI_CATALOG_MAX_AGE_HOURS` in `config.py`). If TAP is unavailable,
+falls back to ExoFOP HTTP, then to the local CSV, then to a built-in
+reference table (TOI-700, L 98-59).
 
 ---
 
@@ -251,8 +254,9 @@ for the full walkthrough.
 ## Cross-matching and candidate classification
 
 Every validated candidate is compared against the
-[ExoFOP-TESS](https://exofop.ipac.caltech.edu/tess/) TOI catalog
-and classified into one of four tiers:
+[NASA Exoplanet Archive](https://exoplanetarchive.ipac.caltech.edu/)
+TOI catalog (fetched live via TAP API, with ExoFOP HTTP and local CSV
+as fallbacks) and classified into one of four tiers:
 
 | Classification | Meaning | Dashboard color |
 |---|---|---|
@@ -415,7 +419,7 @@ known periods and depths. It verifies:
 - [ ] BLS implementation in C with OpenMP for comparison benchmarks
 - [x] ~~ML candidate classification (Random Forest trained on Kepler KOI, 3 classes)~~
 - [ ] CNN classification on phase curves (upgrade from tabular RF)
-- [ ] Real-time query to the NASA Exoplanet Archive via astroquery TAP
+- [x] ~~Real-time query to the NASA Exoplanet Archive via astroquery TAP~~
 - [ ] Automatic alerts for new candidate detections
 - [ ] VOTable export for Virtual Observatory interoperability
 - [ ] GPU-accelerated BLS using CUDA (via Numba or CuPy)

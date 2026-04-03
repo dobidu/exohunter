@@ -367,9 +367,18 @@ scores, and manage the results collection.
 
 ### 5.3 Cross-matching
 
-The TOI catalog is loaded from `data/catalogs/toi_catalog.csv`
-(downloaded from ExoFOP-TESS). If the file doesn't exist, a built-in
-reference table (TOI-700, L 98-59) is used as fallback.
+The TOI catalog is loaded using a three-tier fallback strategy:
+
+1. **NASA Exoplanet Archive TAP** — live query via `astroquery` for the
+   latest TOI table. The result is cached to `data/catalogs/toi_catalog.csv`
+   and re-used until it exceeds `TOI_CATALOG_MAX_AGE_HOURS` (default 48 h).
+2. **ExoFOP-TESS HTTP** — direct CSV download as a second network fallback.
+3. **Local CSV** — any previously cached file on disk (even if stale).
+4. **Built-in reference table** — hardcoded TOI-700 and L 98-59 for
+   fully offline testing.
+
+The `load_toi_catalog(source=)` parameter controls the strategy:
+`"auto"` (default), `"tap"` (force live), or `"csv"` (local only).
 
 **Classification algorithm**:
 ```

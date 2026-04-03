@@ -112,6 +112,11 @@ DASHBOARD_DEBUG: bool = True
 #   "none"  — start with an empty dashboard
 DASHBOARD_DATA_SOURCE: str = "demo"
 
+# Maximum age (hours) before the cached TOI catalog is re-fetched
+# from the NASA Exoplanet Archive via TAP.  Set to 0 to always
+# query live.  Set to a large number to effectively disable auto-refresh.
+TOI_CATALOG_MAX_AGE_HOURS: float = 48.0
+
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
