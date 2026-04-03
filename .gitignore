@@ -21,14 +21,18 @@ env/
 *.swo
 *~
 
+# Claude Code (local settings, not project-level)
+.claude/
+
 # Jupyter
 .ipynb_checkpoints/
 
-# Data (too large for git)
-data/cache/
-data/catalogs/
-data/output/
-data/results/
+# Data (too large for git — directories preserved via .gitkeep)
+data/cache/*
+data/catalogs/*
+data/output/*
+data/results/*
+!data/**/.gitkeep
 
 # OS
 .DS_Store
