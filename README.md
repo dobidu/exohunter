@@ -6,7 +6,7 @@
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-28%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-125%20passed-brightgreen.svg)]()
 
 ---
 
@@ -184,6 +184,15 @@ python scripts/run_batch.py --sector 56 --single-sector
 
 # Test with a small subset
 python scripts/run_batch.py --sector 56 --limit 20
+
+# Multi-planet mode: iteratively subtract transits and re-run BLS
+python scripts/run_batch.py --sector 56 --multi-planet
+
+# ML classification: add ml_class and ml_prob_planet to each candidate
+python scripts/run_batch.py --sector 56 --classify
+
+# Combine all modes
+python scripts/run_batch.py --sector 56 --multi-sector --multi-planet --classify
 
 # Custom magnitude range and period search
 python scripts/run_batch.py --sector 56 --mag-min 9 --mag-max 12 --max-period 30

@@ -598,7 +598,38 @@ num_periods = base_num × (range / 19.5)   # scale with period range
 num_periods = min(num_periods, 50_000)    # cap for runtime
 ```
 
-### 7.5 Candidate inspection
+### 7.5 Multi-planet search (`--multi-planet`)
+
+When enabled, uses `run_iterative_bls()` instead of a single BLS call:
+
+```
+1. Run BLS → find strongest signal → record candidate "b"
+2. Subtract best-fit trapezoidal model from flux
+3. Run BLS on residuals → find next signal → record candidate "c"
+4. Repeat until:
+   - SNR < 5.0 (weaker than validation threshold to catch faint planets)
+   - Detected period is a duplicate/harmonic of a previous detection
+   - max_planets (5) reached
+```
+
+The subtraction uses `transit_model()` from `detection/model.py`:
+`flux_residual = flux - (model - 1.0)`, which removes the transit dip
+and restores the baseline to ~1.0.
+
+Duplicate detection checks the ratio of each new period against all
+previously found periods. If the ratio is within 1% of 1:1, 2:1, 1:2,
+3:1, or 1:3, the iteration stops to prevent the same signal from being
+"rediscovered" at a harmonic.
+
+### 7.6 ML classification (`--classify`)
+
+When enabled, loads the trained Random Forest from
+`data/models/transit_classifier.joblib` and classifies each candidate
+after validation. Adds `ml_class` (planet, eclipsing_binary, or
+false_positive) and `ml_prob_planet` (0.0–1.0) columns to the output
+CSV. See [ML_GUIDE.md](ML_GUIDE.md) for the full training workflow.
+
+### 7.7 Candidate inspection
 
 **Script**: `scripts/inspect_candidate.py`
 
@@ -694,13 +725,14 @@ All configurable parameters are centralized in `exohunter/config.py`:
 - Synthetic light curves with known injected parameters
 - Deterministic random seeds for reproducibility
 
-### 9.2 Test coverage (106 tests)
+### 9.2 Test coverage (125 tests)
 
 | Module | Tests | What is verified |
 |--------|-------|-----------------|
-| `test_bls.py` | 9 | Period recovery (lightkurve + Numba), depth accuracy, cross-implementation agreement, flat data handling |
+| `test_bls.py` | 13 | Period recovery (lightkurve + Numba), depth accuracy, cross-implementation agreement, flat data, iterative multi-planet search |
 | `test_cache.py` | 11 | FITS roundtrip (time, flux, flux_err), 20k-cadence stress test, cache miss, corrupt file, overwrite |
 | `test_catalog.py` | 22 | Scoring formula (5 penalty cases + boundary), catalog CRUD, ranking, DataFrame, TIC parsing, 4-tier cross-match |
+| `test_classification.py` | 15 | Feature extraction, RF training on synthetic data, prediction validity, probability normalization, NaN handling, model persistence |
 | `test_dashboard.py` | 24 | Demo data schema, app creation, 16 component IDs, figure generation, end-to-end pipeline flow |
 | `test_model.py` | 14 | Transit model values, periodicity, symmetry, bounds, phase folding, binning |
 | `test_preprocessing.py` | 6 | Signal preservation, output fields, cadence retention, outlier removal, normalization |
@@ -734,7 +766,7 @@ git clone https://github.com/dobidu/exohunter.git
 cd exohunter
 python -m venv venv && source venv/bin/activate
 pip install -e ".[dev]"
-pytest                    # 106 tests, all offline
+pytest                    # 125 tests, all offline
 ```
 
 ### 10.2 Download the TOI catalog
