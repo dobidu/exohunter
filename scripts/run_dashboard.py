@@ -189,6 +189,21 @@ def generate_demo_data() -> dict:
         },
     }
 
+    # --- BLS periodogram (computed from the synthetic light curve) ---
+    # This provides the data for the periodogram panel in the dashboard.
+    from lightkurve import LightCurve as LK_LC
+    lc_for_bls = LK_LC(time=time, flux=flux)
+    bls_period_grid = np.linspace(0.5, 45.0, 10000)
+    periodogram = lc_for_bls.to_periodogram(
+        method="bls", period=bls_period_grid, frequency_factor=500,
+    )
+    bls_data = {
+        TOI700_TIC: {
+            "periods": periodogram.period.value.tolist(),
+            "power": periodogram.power.value.tolist(),
+        },
+    }
+
     # --- Candidates (one per planet) ---
     candidates = []
     for planet in TOI700_PLANETS:
@@ -225,6 +240,7 @@ def generate_demo_data() -> dict:
         "targets": targets,
         "candidates": candidates,
         "lightcurves": lightcurves,
+        "bls_periodograms": bls_data,
     }
 
 

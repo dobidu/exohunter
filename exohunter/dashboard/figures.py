@@ -292,6 +292,191 @@ def make_phase_plot(
     return _apply_dark_style(fig)
 
 
+def make_periodogram_plot(
+    bls_periods: np.ndarray,
+    bls_power: np.ndarray,
+    candidate: TransitCandidate,
+) -> go.Figure:
+    """Create a BLS periodogram plot with peak and harmonics marked.
+
+    Args:
+        bls_periods: Array of trial periods (days).
+        bls_power: Array of BLS power values.
+        candidate: The detected candidate (provides the peak period).
+
+    Returns:
+        A Plotly ``Figure``.
+    """
+    fig = go.Figure()
+
+    fig.add_trace(go.Scatter(
+        x=bls_periods,
+        y=bls_power,
+        mode="lines",
+        line=dict(color="deepskyblue", width=1),
+        name="BLS Power",
+    ))
+
+    # Mark the detected period
+    fig.add_vline(
+        x=candidate.period,
+        line=dict(color="red", width=2, dash="dash"),
+        annotation_text=f"P={candidate.period:.4f} d",
+        annotation_font_color="red",
+        annotation_position="top right",
+    )
+
+    # Mark harmonics
+    harmonic_labels = [(2.0, "2P"), (0.5, "P/2"), (3.0, "3P"), (1 / 3, "P/3")]
+    p_min, p_max = float(bls_periods[0]), float(bls_periods[-1])
+    for ratio, label in harmonic_labels:
+        hp = candidate.period * ratio
+        if p_min <= hp <= p_max:
+            fig.add_vline(
+                x=hp,
+                line=dict(color="orange", width=1, dash="dot"),
+                annotation_text=label,
+                annotation_font_color="orange",
+                annotation_font_size=10,
+                annotation_position="top left",
+            )
+
+    display_name = candidate.name or candidate.tic_id
+    fig.update_layout(
+        title=f"BLS Periodogram — {display_name}",
+        xaxis_title="Period (days)",
+        yaxis_title="BLS Power",
+        height=350,
+    )
+
+    return _apply_dark_style(fig)
+
+
+def make_odd_even_plot(
+    time: np.ndarray,
+    flux: np.ndarray,
+    candidate: TransitCandidate,
+    n_bins: int = 100,
+) -> go.Figure:
+    """Create an odd-even transit comparison plot.
+
+    Splits transits into odd-numbered and even-numbered events, phase-folds
+    each subset, and overlays the binned curves. If the depths differ
+    significantly, the signal may be an eclipsing binary at twice the
+    detected period.
+
+    Args:
+        time: Array of timestamps.
+        flux: Array of normalized flux values.
+        candidate: The transit candidate.
+        n_bins: Number of phase bins per subset.
+
+    Returns:
+        A Plotly ``Figure`` with odd and even binned phase curves.
+    """
+    period = candidate.period
+    epoch = candidate.epoch
+    duration = candidate.duration
+
+    # Identify individual transit events by number
+    transit_numbers = np.round((time - epoch) / period).astype(int)
+    half_dur = duration / 2.0
+
+    # Compute baseline flux
+    phase_time = ((time - epoch + period / 2) % period) - period / 2
+    out_mask = np.abs(phase_time) > duration
+    baseline = float(np.median(flux[out_mask])) if np.sum(out_mask) > 10 else 1.0
+
+    # Collect per-transit depths for odd and even
+    unique_transits = np.unique(transit_numbers)
+    odd_depths: list[float] = []
+    even_depths: list[float] = []
+
+    for n in unique_transits:
+        t_center = epoch + n * period
+        in_this = np.abs(time - t_center) < half_dur
+        if np.sum(in_this) < 3:
+            continue
+        d = baseline - float(np.median(flux[in_this]))
+        if n % 2 == 0:
+            even_depths.append(d)
+        else:
+            odd_depths.append(d)
+
+    depth_odd = float(np.median(odd_depths)) if odd_depths else 0.0
+    depth_even = float(np.median(even_depths)) if even_depths else 0.0
+    depth_diff = abs(depth_odd - depth_even)
+
+    # Consistency check
+    all_depths = odd_depths + even_depths
+    if len(all_depths) >= 2:
+        scatter = float(np.std(all_depths))
+        is_consistent = depth_diff < 3.0 * scatter if scatter > 0 else True
+    else:
+        is_consistent = True
+
+    # Phase-fold odd and even separately
+    odd_mask = np.isin(transit_numbers, [n for n in unique_transits if n % 2 != 0])
+    even_mask = np.isin(transit_numbers, [n for n in unique_transits if n % 2 == 0])
+
+    fig = go.Figure()
+
+    for mask, label, color, symbol, depths, n_count in [
+        (odd_mask, "Odd transits", "#ff6b6b", "circle", odd_depths, len(odd_depths)),
+        (even_mask, "Even transits", "#4ecdc4", "square", even_depths, len(even_depths)),
+    ]:
+        if np.sum(mask) < 10:
+            continue
+        phase_sub, flux_sub = phase_fold(time[mask], flux[mask], period, epoch)
+        centers, means, stds = bin_phase_curve(phase_sub, flux_sub, n_bins=n_bins)
+
+        if len(centers) > 0:
+            depth_val = float(np.median(depths)) if depths else 0.0
+            fig.add_trace(go.Scatter(
+                x=centers,
+                y=means,
+                error_y=dict(type="data", array=stds, visible=True, thickness=0.8),
+                mode="markers+lines",
+                marker=dict(size=4, color=color, symbol=symbol),
+                line=dict(color=color, width=1),
+                name=f"{label} (n={n_count}, d={depth_val * 100:.4f}%)",
+            ))
+
+    status_text = "CONSISTENT — likely planet" if is_consistent else "INCONSISTENT — possible eclipsing binary"
+    status_color = "#00ff88" if is_consistent else "#ff6b6b"
+
+    display_name = candidate.name or candidate.tic_id
+    fig.update_layout(
+        title=(
+            f"Odd vs Even Transits — {display_name}   "
+            f"<span style='color:{status_color}'>{status_text}</span>"
+        ),
+        xaxis_title="Orbital Phase",
+        yaxis_title="Normalized Flux",
+        xaxis_range=[-0.15, 0.15],
+        height=350,
+    )
+
+    # Annotation with depth difference
+    fig.add_annotation(
+        text=(
+            f"|Δdepth| = {depth_diff * 100:.4f}%<br>"
+            f"Odd: {depth_odd * 100:.4f}%  Even: {depth_even * 100:.4f}%"
+        ),
+        xref="paper", yref="paper",
+        x=0.02, y=0.05,
+        showarrow=False,
+        font=dict(size=11, color=status_color),
+        align="left",
+        bgcolor="rgba(22,33,62,0.8)",
+        bordercolor=status_color,
+        borderwidth=1,
+        borderpad=6,
+    )
+
+    return _apply_dark_style(fig)
+
+
 def make_empty_figure(message: str = "Select a target to view") -> go.Figure:
     """Create an empty placeholder figure with a message.
 

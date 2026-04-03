@@ -515,6 +515,8 @@ The data source is configurable via:
 | Sky map | `sky-map` | Scattergl | RA/Dec map color-coded by classification |
 | Light curve | `lightcurve-plot` | Scattergl + Scatter | Time series + transit model overlay |
 | Phase diagram | `phase-plot` | Scattergl + Scatter | Phase-folded transit with binned means |
+| BLS periodogram | `periodogram-plot` | Scatter | Power vs. period with peak and harmonics |
+| Odd-even comparison | `odd-even-plot` | Scatter | Odd/even transit overlay with EB check |
 | Candidate table | `candidate-table` | DataTable | Sortable, filterable results |
 | Candidate selector | `candidate-selector` | Dropdown | Multi-planet support |
 | Classification filter | `xmatch-filter` | Checklist | Toggle NEW/MATCH/TOI/HARMONIC |
@@ -570,6 +572,40 @@ internally (which has its own threading), and the overhead of pickling
 large LightCurve objects across process boundaries outweighs the
 parallelism gain for typical batch sizes (100-200 targets after
 magnitude filtering).
+
+### 7.4 Sector download modes
+
+| Flag | Downloads | BLS max period | Use case |
+|------|-----------|---------------|----------|
+| *(default)* | All available sectors | 20 days (fixed) | Standard search |
+| `--multi-sector` | All available sectors | Auto: baseline / 2 (up to 200 d) | Long-period planets (P > 30 d) |
+| `--single-sector` | Specified sector only | 20 days (fixed) | Fast processing |
+
+In `--multi-sector` mode, the BLS parameters are auto-tuned per target:
+
+```python
+max_period = min(baseline / 2, 200)       # at least 2 transits
+num_periods = base_num × (range / 19.5)   # scale with period range
+num_periods = min(num_periods, 50_000)    # cap for runtime
+```
+
+### 7.5 Candidate inspection
+
+**Script**: `scripts/inspect_candidate.py`
+
+Generates a 4-panel PNG diagnostic report for a single candidate:
+
+1. **Light curve** with transit windows highlighted and model overlay
+2. **Phase-folded data** with trapezoidal model fit (optimized depth
+   and ingress fraction via `scipy.optimize.minimize_scalar`). Derives
+   Rp/R\* = sqrt(depth) and impact parameter from ingress fraction.
+3. **BLS periodogram** with detected peak and harmonic lines (2P, P/2,
+   3P, P/3) annotated
+4. **Odd-even transit comparison**: splits transits into odd/even
+   numbered events, compares median depths. If |delta| > 3-sigma,
+   flags as possible eclipsing binary.
+
+Output: `data/reports/TIC_<number>.png`
 
 ---
 

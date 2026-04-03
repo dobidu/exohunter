@@ -163,12 +163,21 @@ The dashboard features:
 | **Candidate table** | Sortable, filterable table with classification badges |
 | **Classification filter** | Toggle NEW_CANDIDATE, KNOWN_MATCH, KNOWN_TOI, HARMONIC |
 | **Multi-planet support** | Dropdown to switch between candidates for the same star |
+| **BLS periodogram** | Power vs. period with detected peak and harmonics marked |
+| **Odd-even comparison** | Overlaid odd/even transit curves with EB consistency check |
 
 ### 3. Batch process an entire TESS sector
 
 ```bash
 # Process sector 56 — stars with TESS magnitude 10–14
 python scripts/run_batch.py --sector 56
+
+# Multi-sector mode: stitch all available sectors per target,
+# auto-extend BLS period range to half the baseline (detects P > 30 d)
+python scripts/run_batch.py --sector 56 --multi-sector
+
+# Single-sector mode: download only the specified sector (faster)
+python scripts/run_batch.py --sector 56 --single-sector
 
 # Test with a small subset
 python scripts/run_batch.py --sector 56 --limit 20
@@ -185,6 +194,18 @@ The batch script:
 5. Prints a summary with status breakdown and top 10 candidates by SNR
 6. Saves results to `data/results/sector_XX.csv`
 
+**Sector modes:**
+
+| Flag | Downloads | BLS max period | Use case |
+|------|-----------|---------------|----------|
+| *(default)* | All available sectors | 20 days (fixed) | Standard search |
+| `--multi-sector` | All available sectors | Auto: baseline / 2 (up to 200 d) | Long-period planets (P > 30 d) |
+| `--single-sector` | Specified sector only | 20 days (fixed) | Fast processing |
+
+In `--multi-sector` mode, the number of BLS trial periods is scaled
+proportionally to the period range (capped at 50,000) to maintain
+resolution.
+
 Results are automatically available in the dashboard via the data source
 selector — no restart needed.
 
@@ -194,6 +215,19 @@ selector — no restart needed.
 python scripts/run_pipeline.py --tic "TIC 150428135"
 python scripts/run_pipeline.py --tic "TIC 150428135" --min-period 1.0 --max-period 40.0
 ```
+
+### 5. Inspect a promising candidate
+
+Generate a 4-panel diagnostic report (PNG) for a candidate:
+
+```bash
+python scripts/inspect_candidate.py --tic "TIC 150428135" --period 37.426
+```
+
+The report includes: light curve with transit windows, phase-folded
+data with trapezoidal model fit (depth, Rp/R\*, impact parameter),
+BLS periodogram with harmonics, and odd-even transit comparison for
+eclipsing binary discrimination. Saved to `data/reports/TIC_<number>.png`.
 
 ---
 
@@ -277,8 +311,9 @@ exohunter/
 |--------|---------|
 | `scripts/demo_single_star.py` | End-to-end demo on TOI-700 (3 planets) |
 | `scripts/run_pipeline.py` | CLI for single-target processing |
-| `scripts/run_batch.py` | Batch processing of an entire TESS sector |
+| `scripts/run_batch.py` | Batch sector processing (supports `--multi-sector` / `--single-sector`) |
 | `scripts/run_dashboard.py` | Dashboard server with demo data generator |
+| `scripts/inspect_candidate.py` | Deep 4-panel diagnostic report for a candidate (PNG) |
 
 ---
 

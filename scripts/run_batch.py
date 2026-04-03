@@ -10,6 +10,13 @@ Usage::
     # Process sector 56 (all targets with Tmag 10–14)
     python scripts/run_batch.py --sector 56
 
+    # Multi-sector mode: stitch all available sectors for each target,
+    # auto-extend the BLS period range, and scale grid resolution
+    python scripts/run_batch.py --sector 56 --multi-sector
+
+    # Single-sector mode: only download the specified sector (faster)
+    python scripts/run_batch.py --sector 56 --single-sector
+
     # Limit to first 20 targets (for testing)
     python scripts/run_batch.py --sector 56 --limit 20
 
@@ -186,6 +193,57 @@ def _query_tic_magnitudes(
 
 
 # ---------------------------------------------------------------------------
+# BLS parameter auto-tuning for multi-sector baselines
+# ---------------------------------------------------------------------------
+
+def _auto_bls_params(
+    time: np.ndarray,
+    min_period: float,
+    max_period: float | None,
+    num_periods: int,
+) -> tuple[float, int]:
+    """Auto-compute BLS max period and grid size from the light curve baseline.
+
+    For multi-sector data spanning hundreds of days, we extend the BLS
+    period search to half the observation baseline (need at least 2
+    transits) and scale the number of trial periods proportionally so
+    the period resolution stays comparable.
+
+    Args:
+        time: Array of timestamps (days).
+        min_period: Fixed minimum period.
+        max_period: User-specified max period, or ``None`` to auto-compute.
+        num_periods: Base number of periods (for the default 20-day range).
+
+    Returns:
+        Tuple of ``(adjusted_max_period, adjusted_num_periods)``.
+    """
+    baseline = float(time[-1] - time[0])
+
+    if max_period is None:
+        # Need at least 2 transits → max period = baseline / 2
+        # Cap at 200 days to keep BLS runtime reasonable
+        auto_max = min(baseline / 2.0, 200.0)
+        adjusted_max = max(auto_max, config.BLS_MAX_PERIOD_DAYS)
+    else:
+        adjusted_max = max_period
+
+    # Scale num_periods proportionally to the period range.
+    # The default 10,000 periods covers 0.5–20 d = 19.5 d range.
+    # If we now cover 0.5–100 d = 99.5 d, we need ~5x more periods
+    # to maintain the same resolution.
+    default_range = config.BLS_MAX_PERIOD_DAYS - config.BLS_MIN_PERIOD_DAYS
+    actual_range = adjusted_max - min_period
+    scale_factor = actual_range / default_range if default_range > 0 else 1.0
+    adjusted_num = int(num_periods * scale_factor)
+
+    # Cap at 50,000 periods to avoid excessive BLS runtime
+    adjusted_num = min(adjusted_num, 50_000)
+
+    return adjusted_max, adjusted_num
+
+
+# ---------------------------------------------------------------------------
 # Main batch driver
 # ---------------------------------------------------------------------------
 
@@ -197,6 +255,8 @@ def run_batch(
     min_period: float = config.BLS_MIN_PERIOD_DAYS,
     max_period: float = config.BLS_MAX_PERIOD_DAYS,
     download_workers: int = config.DEFAULT_DOWNLOAD_WORKERS,
+    multi_sector: bool = False,
+    single_sector: bool = False,
 ) -> tuple[CandidateCatalog, pd.DataFrame]:
     """Run the full ExoHunter pipeline on a TESS sector.
 
@@ -214,6 +274,11 @@ def run_batch(
         min_period: BLS search minimum period (days).
         max_period: BLS search maximum period (days).
         download_workers: Number of concurrent download threads.
+        multi_sector: If ``True``, download all available sectors for
+            each target (stitched into one long light curve) and
+            auto-extend the BLS period range to half the baseline.
+        single_sector: If ``True``, restrict downloads to only the
+            specified sector (faster, but limits baseline to ~27 days).
 
     Returns:
         Tuple of ``(catalog, summary_df)`` where ``summary_df``
@@ -221,13 +286,25 @@ def run_batch(
     """
     batch_start = time_module.perf_counter()
 
+    # Determine download mode
+    if single_sector:
+        download_sectors = [sector]
+        mode_label = f"single-sector (sector {sector} only)"
+    else:
+        download_sectors = None  # lightkurve downloads all available
+        mode_label = "multi-sector (all available)" if multi_sector else "all available sectors"
+
     # ------------------------------------------------------------------
     # Stage 1: Discover targets
     # ------------------------------------------------------------------
     logger.info("=" * 70)
     logger.info("  ExoHunter Batch Processing — TESS Sector %d", sector)
+    logger.info("  Download mode: %s", mode_label)
     logger.info("  Magnitude range: %.1f–%.1f Tmag", mag_min, mag_max)
-    logger.info("  Period search: %.1f–%.1f days", min_period, max_period)
+    if not multi_sector:
+        logger.info("  Period search: %.1f–%.1f days", min_period, max_period)
+    else:
+        logger.info("  Period search: %.1f days – auto (multi-sector)", min_period)
     logger.info("=" * 70)
 
     targets = search_sector_with_magnitudes(
@@ -248,12 +325,13 @@ def run_batch(
     # ------------------------------------------------------------------
     # Stage 2: Download light curves (concurrent threads)
     # ------------------------------------------------------------------
-    logger.info("[Stage 2] Downloading light curves (%d threads)...", download_workers)
+    logger.info("[Stage 2] Downloading light curves (%d threads, %s)...",
+                download_workers, mode_label)
 
     downloaded: dict[str, object] = {}
 
     def _download_one(tic_id: str):
-        return download_lightcurve(tic_id)
+        return download_lightcurve(tic_id, sectors=download_sectors)
 
     # Save references to stdout/stderr before threaded downloads.
     # lightkurve's internal file operations can corrupt sys.stdout
@@ -314,13 +392,26 @@ def run_batch(
             # Preprocess
             processed = preprocess_single(light_curve, tic_id=tic_id)
 
+            # Auto-tune BLS parameters for multi-sector mode
+            if multi_sector:
+                target_max_period, target_num_periods = _auto_bls_params(
+                    processed.time,
+                    min_period,
+                    max_period=None,  # auto-compute from baseline
+                    num_periods=config.BLS_NUM_PERIODS,
+                )
+            else:
+                target_max_period = max_period
+                target_num_periods = config.BLS_NUM_PERIODS
+
             # BLS detection
             lc_for_bls = processed.to_lightcurve()
             candidate = run_bls_lightkurve(
                 lc_for_bls,
                 tic_id=tic_id,
                 min_period=min_period,
-                max_period=max_period,
+                max_period=target_max_period,
+                num_periods=target_num_periods,
             )
 
             if candidate is None:
@@ -341,10 +432,7 @@ def run_batch(
                 flux=processed.flux,
             )
 
-            # Cross-match ALL detections against the TOI catalog,
-            # regardless of SNR.  A low-SNR detection in a known TOI
-            # system is still useful (confirms the star was observed),
-            # and a NEW_CANDIDATE at any SNR is worth flagging.
+            # Cross-match ALL detections against the TOI catalog
             xmatch = crossmatch_candidate(candidate)
             xmatch_class = xmatch.match_class.value
 
@@ -355,6 +443,9 @@ def run_batch(
                 if validation.is_valid:
                     catalog.add(candidate, validation)
                     status = xmatch_class.lower()
+
+            # Record baseline info for multi-sector tracking
+            baseline_days = float(processed.time[-1] - processed.time[0])
 
             summary_rows.append({
                 "tic_id": tic_id,
@@ -367,6 +458,8 @@ def run_batch(
                 "n_transits": candidate.n_transits,
                 "is_valid": validation.is_valid,
                 "flags": "; ".join(validation.flags),
+                "baseline_days": baseline_days,
+                "bls_max_period": target_max_period,
             })
             n_processed += 1
 
@@ -398,6 +491,7 @@ def run_batch(
         catalog=catalog,
         summary_df=summary_df,
         elapsed=batch_elapsed,
+        multi_sector=multi_sector,
     )
 
     return catalog, summary_df
@@ -412,6 +506,7 @@ def _print_summary(
     catalog: CandidateCatalog,
     summary_df: pd.DataFrame,
     elapsed: float,
+    multi_sector: bool = False,
 ) -> None:
     """Log the end-of-batch summary report."""
     n_valid = len(catalog.get_valid())
@@ -422,10 +517,11 @@ def _print_summary(
         minutes, seconds = divmod(elapsed, 60)
         time_str = f"{int(minutes)}m {seconds:.0f}s"
 
+    mode = "multi-sector" if multi_sector else "single-sector"
     lines = [
         "",
         "=" * 70,
-        f"  Batch Results — TESS Sector {sector}",
+        f"  Batch Results — TESS Sector {sector} ({mode})",
         "=" * 70,
         f"  Targets found:       {n_targets}",
         f"  Downloaded:          {n_downloaded}",
@@ -437,6 +533,17 @@ def _print_summary(
 
     if n_processed > 0:
         lines.append(f"  Time per target:     {elapsed / n_processed:.1f}s")
+
+    # Baseline stats for multi-sector mode
+    if multi_sector and not summary_df.empty and "baseline_days" in summary_df.columns:
+        baselines = summary_df["baseline_days"].dropna()
+        if len(baselines) > 0:
+            lines.append(f"  Baseline range:      {baselines.min():.0f}–{baselines.max():.0f} days")
+            lines.append(f"  Median baseline:     {baselines.median():.0f} days")
+
+        max_periods = summary_df["bls_max_period"].dropna()
+        if len(max_periods) > 0:
+            lines.append(f"  BLS max period:      {max_periods.median():.1f} days (auto)")
 
     # Status breakdown
     if not summary_df.empty and "status" in summary_df.columns:
@@ -464,7 +571,6 @@ def _print_summary(
     lines.append("=" * 70)
     lines.append("")
 
-    # Write the full summary as a single log message to avoid interleaving
     logger.info("\n".join(lines))
 
 
@@ -512,7 +618,7 @@ def parse_args() -> argparse.Namespace:
         "--max-period",
         type=float,
         default=config.BLS_MAX_PERIOD_DAYS,
-        help="Maximum BLS search period (days)",
+        help="Maximum BLS search period (days). Ignored in --multi-sector mode (auto-computed).",
     )
     parser.add_argument(
         "--workers",
@@ -520,6 +626,31 @@ def parse_args() -> argparse.Namespace:
         default=config.DEFAULT_DOWNLOAD_WORKERS,
         help="Number of concurrent download threads",
     )
+
+    # Sector download mode
+    sector_mode = parser.add_mutually_exclusive_group()
+    sector_mode.add_argument(
+        "--multi-sector",
+        action="store_true",
+        default=False,
+        help=(
+            "Download all available sectors for each target and stitch "
+            "into a single long-baseline light curve. Auto-extends the "
+            "BLS period range to half the baseline and scales the number "
+            "of trial periods proportionally. Enables detection of "
+            "long-period planets (>30 days)."
+        ),
+    )
+    sector_mode.add_argument(
+        "--single-sector",
+        action="store_true",
+        default=False,
+        help=(
+            "Only download data from the specified sector for each target. "
+            "Faster but limits the observation baseline to ~27 days."
+        ),
+    )
+
     return parser.parse_args()
 
 
@@ -535,13 +666,16 @@ def main() -> None:
         min_period=args.min_period,
         max_period=args.max_period,
         download_workers=args.workers,
+        multi_sector=args.multi_sector,
+        single_sector=args.single_sector,
     )
 
     # Save results
     results_dir = config.RESULTS_DIR
     results_dir.mkdir(parents=True, exist_ok=True)
 
-    csv_path = results_dir / f"sector_{args.sector:02d}.csv"
+    suffix = "_multi" if args.multi_sector else ""
+    csv_path = results_dir / f"sector_{args.sector:02d}{suffix}.csv"
     if not summary_df.empty:
         summary_df.to_csv(csv_path, index=False)
         logger.info("Results saved to: %s", csv_path)
@@ -551,7 +685,7 @@ def main() -> None:
     # Also export the validated candidate catalog
     if len(catalog) > 0:
         from exohunter.catalog.export import export_to_csv
-        catalog_path = results_dir / f"sector_{args.sector:02d}_candidates.csv"
+        catalog_path = results_dir / f"sector_{args.sector:02d}{suffix}_candidates.csv"
         export_to_csv(catalog, output_path=catalog_path)
         logger.info("Candidate catalog saved to: %s", catalog_path)
 

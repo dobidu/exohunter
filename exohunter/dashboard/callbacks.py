@@ -25,6 +25,8 @@ from exohunter import config
 from exohunter.dashboard.figures import (
     make_empty_figure,
     make_lightcurve_plot,
+    make_odd_even_plot,
+    make_periodogram_plot,
     make_phase_plot,
     make_sky_map,
 )
@@ -525,6 +527,83 @@ def register_callbacks(app: Dash) -> None:
         flux = np.array(lc_data["flux"])
 
         return make_phase_plot(time, flux, candidate)
+
+    # ------------------------------------------------------------------
+    # BLS periodogram plot.
+    # ------------------------------------------------------------------
+    @app.callback(
+        Output("periodogram-plot", "figure"),
+        Input("selected-target", "data"),
+        Input("candidate-selector", "value"),
+        State("pipeline-data", "data"),
+    )
+    def update_periodogram(
+        selected_tic: str | None,
+        candidate_idx: int | None,
+        pipeline_data: dict[str, Any],
+    ) -> Any:
+        """Update the BLS periodogram for the selected target."""
+        if not selected_tic:
+            return make_empty_figure("Select a target to view its periodogram")
+
+        # Check if BLS periodogram data is available
+        bls_data = pipeline_data.get("bls_periodograms", {}).get(selected_tic)
+        if not bls_data:
+            return make_empty_figure(
+                f"BLS periodogram not available for {selected_tic}\n"
+                f"(run inspect_candidate.py for full diagnostics)"
+            )
+
+        target_candidates = _candidates_for_target(selected_tic, pipeline_data)
+        if not target_candidates:
+            return make_empty_figure(f"No candidate for {selected_tic}")
+
+        if candidate_idx is None or candidate_idx >= len(target_candidates):
+            candidate_idx = 0
+
+        candidate = _candidate_from_dict(target_candidates[candidate_idx])
+        periods = np.array(bls_data["periods"])
+        power = np.array(bls_data["power"])
+
+        return make_periodogram_plot(periods, power, candidate)
+
+    # ------------------------------------------------------------------
+    # Odd-even transit comparison plot.
+    # ------------------------------------------------------------------
+    @app.callback(
+        Output("odd-even-plot", "figure"),
+        Input("selected-target", "data"),
+        Input("candidate-selector", "value"),
+        State("pipeline-data", "data"),
+    )
+    def update_odd_even(
+        selected_tic: str | None,
+        candidate_idx: int | None,
+        pipeline_data: dict[str, Any],
+    ) -> Any:
+        """Update the odd-even transit comparison plot."""
+        if not selected_tic:
+            return make_empty_figure("Select a target to view odd-even comparison")
+
+        lc_data = pipeline_data.get("lightcurves", {}).get(selected_tic)
+        if not lc_data:
+            return make_empty_figure(
+                f"Odd-even comparison not available for {selected_tic}\n"
+                f"(requires light curve data)"
+            )
+
+        target_candidates = _candidates_for_target(selected_tic, pipeline_data)
+        if not target_candidates:
+            return make_empty_figure(f"No candidate for {selected_tic}")
+
+        if candidate_idx is None or candidate_idx >= len(target_candidates):
+            candidate_idx = 0
+
+        candidate = _candidate_from_dict(target_candidates[candidate_idx])
+        time = np.array(lc_data["time"])
+        flux = np.array(lc_data["flux"])
+
+        return make_odd_even_plot(time, flux, candidate)
 
     # ------------------------------------------------------------------
     # CSV export.

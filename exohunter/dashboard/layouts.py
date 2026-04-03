@@ -216,6 +216,24 @@ def make_main_content() -> html.Div:
             dbc.CardHeader("Panel 3 — Phase-Folded Light Curve"),
             dbc.CardBody(dcc.Graph(id="phase-plot", style={"height": "400px"})),
         ], className="mb-3"),
+
+        # Diagnostic panels — BLS periodogram and odd-even comparison
+        dbc.Row([
+            dbc.Col(
+                dbc.Card([
+                    dbc.CardHeader("Panel 4 — BLS Periodogram"),
+                    dbc.CardBody(dcc.Graph(id="periodogram-plot", style={"height": "350px"})),
+                ]),
+                width=6,
+            ),
+            dbc.Col(
+                dbc.Card([
+                    dbc.CardHeader("Panel 5 — Odd vs Even Transits"),
+                    dbc.CardBody(dcc.Graph(id="odd-even-plot", style={"height": "350px"})),
+                ]),
+                width=6,
+            ),
+        ], className="mb-3"),
     ])
 
 

@@ -32,6 +32,7 @@ data/cache/*
 data/catalogs/*
 data/output/*
 data/results/*
+data/reports/*
 !data/**/.gitkeep
 
 # OS
