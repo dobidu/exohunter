@@ -110,7 +110,7 @@ source venv/bin/activate    # Linux / macOS
 # venv\Scripts\activate     # Windows (PowerShell)
 
 pip install -e ".[dev]"
-pytest                       # 28 tests, all offline
+pytest                       # 152 tests, all offline
 ```
 
 ### Download the TOI catalog (optional, for cross-matching)
@@ -375,7 +375,7 @@ the candidate score but do not reject the candidate outright.
 ## Running tests
 
 ```bash
-pytest                                          # 28 tests, all offline
+pytest                                          # 152 tests, all offline
 pytest -v                                       # verbose
 pytest --cov=exohunter --cov-report=term-missing  # with coverage
 pytest tests/test_bls.py -v                     # single module
