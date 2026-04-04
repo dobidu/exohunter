@@ -43,7 +43,7 @@ The dashboard is organized top-to-bottom:
 └─────────────────────────────────────────────────────┘
 ```
 
-*[Screenshot: full dashboard layout]*
+[![Fullscreen dashboard view](imgs/dashboard_full.jpg)](imgs/dashboard_full.jpg)
 
 ---
 
@@ -60,7 +60,6 @@ When you select a sector, the candidate table and sky map update
 automatically. Light curve and phase plots are available only for
 the demo (batch mode doesn't store light curves).
 
-*[Screenshot: data source dropdown]*
 
 ### Filters
 
@@ -73,8 +72,6 @@ the demo (batch mode doesn't store light curves).
 
 All filters apply to the candidate table in real-time. The sky map
 and plots are not affected by filters — they show all loaded data.
-
-*[Screenshot: sidebar filters]*
 
 ---
 
@@ -97,7 +94,7 @@ coordinates. Color-coded by status:
 **Click** a point to select that target — the light curve, phase
 diagram, and candidate selector update.
 
-*[Screenshot: sky map with color-coded targets]*
+[![Dashboard panel 1 - Sky map](imgs/dashboard_skymap.jpg)](imgs/dashboard_skymap.jpg)
 
 ### Panel 2 — Light Curve
 
@@ -110,7 +107,7 @@ Features:
 - **Candidate selector dropdown** for multi-planet targets — switch
   between planets b, c, d, etc.
 
-*[Screenshot: light curve with transit windows]*
+[![Dashboard panel 2 - Light curve](imgs/dashboard_lightcurve.jpg)](imgs/dashboard_lightcurve.jpg)
 
 ### Panel 3 — Phase-Folded Light Curve
 
@@ -122,8 +119,6 @@ The light curve folded at the detected period, centered on the transit:
 
 The title shows: period, depth (%), duration (hours), and SNR.
 
-*[Screenshot: phase-folded transit with model]*
-
 ### Panel 4 — BLS Periodogram
 
 The BLS power spectrum showing how strongly each trial period matches
@@ -134,8 +129,6 @@ a box-shaped transit:
 
 Peaks at harmonics are common and don't indicate additional planets —
 they're aliases of the main signal.
-
-*[Screenshot: BLS periodogram with harmonics]*
 
 ### Panel 5 — Odd vs Even Transits
 
@@ -149,7 +142,9 @@ If the depths differ significantly (> 3-sigma), the title shows
 "INCONSISTENT — possible eclipsing binary". If they agree, it shows
 "CONSISTENT — likely planet".
 
-*[Screenshot: odd-even comparison]*
+---
+
+[![Dashboard panels 3, 4 and 5](imgs/dashboard_phase_bls_oddvseven.jpg)](imgs/dashboard_phase_bls_oddvseven.jpg)
 
 ---
 
@@ -188,8 +183,6 @@ filters. Columns:
 **Export**: click "Export CSV" in the sidebar to download the filtered
 table as a CSV file.
 
-*[Screenshot: candidate table with colored rows]*
-
 ---
 
 ## 6. New Candidates Highlight Panel
@@ -203,8 +196,6 @@ uncatalogued candidates by score. Each entry shows:
 
 This panel auto-updates when the data source changes. If no
 NEW_CANDIDATE entries exist, it shows a placeholder message.
-
-*[Screenshot: new candidates panel]*
 
 ---
 
@@ -248,8 +239,6 @@ Timeline of alert JSON files from `data/alerts/`. Each entry shows:
 - Number of new candidates
 - TIC IDs of the top candidates
 - Timestamp
-
-*[Screenshot: data overview section]*
 
 ---
 
