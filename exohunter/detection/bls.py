@@ -386,6 +386,271 @@ def run_bls_numba(
 
 
 # ---------------------------------------------------------------------------
+# GPU-accelerated BLS (Numba CUDA)
+# ---------------------------------------------------------------------------
+#
+# The same prefix-sum binned algorithm as _bls_core, but each trial
+# period is processed by a separate CUDA thread instead of a CPU core.
+# With 10,000 periods, this maps naturally to the GPU's thousands of
+# threads.
+#
+# Requires: NVIDIA GPU with CUDA support (numba.cuda).
+# Falls back to CPU Numba transparently if no GPU is detected.
+# ---------------------------------------------------------------------------
+
+try:
+    from numba import cuda as _cuda
+
+    _CUDA_AVAILABLE = _cuda.is_available()
+except (ImportError, Exception):
+    _CUDA_AVAILABLE = False
+
+if _NUMBA_AVAILABLE and _CUDA_AVAILABLE:
+    from numba import cuda as _cuda
+
+    # GPU uses 128 bins — fewer than the CPU's 300 to keep memory
+    # usage per thread low.  128 bins ≈ 0.8% of the period, still
+    # fine for TESS 2-min cadence data.
+    _N_GPU_BINS: int = 128
+
+    @_cuda.jit
+    def _bls_core_gpu(
+        time, flux, periods, durations,
+        n_points, n_durations, n_bins, total_flux,
+        work_flux, work_count,
+        powers_out, depths_out, durations_out, epochs_out,
+    ):
+        """CUDA kernel: one thread per trial period.
+
+        Each thread uses a pre-allocated row in the global work arrays
+        (work_flux[i,:] and work_count[i,:]) for its bin data, avoiding
+        local memory allocation that can crash on smaller GPUs.
+        """
+        i = _cuda.grid(1)
+        if i >= periods.shape[0]:
+            return
+
+        period = periods[i]
+        best_power = 0.0
+        best_depth = 0.0
+        best_dur = durations[0]
+        best_epoch = 0.0
+
+        # Zero the bin arrays (each thread owns row i)
+        for b in range(n_bins):
+            work_flux[i, b] = 0.0
+            work_count[i, b] = 0
+
+        # Step 1: Bin the phase-folded data
+        for k in range(n_points):
+            phase = (time[k] % period) / period
+            b = int(phase * n_bins)
+            if b >= n_bins:
+                b = n_bins - 1
+            work_flux[i, b] += flux[k]
+            work_count[i, b] += 1
+
+        # Step 2: Slide window for each duration
+        for j in range(n_durations):
+            dur = durations[j]
+            frac_dur = dur / period
+
+            if frac_dur >= 0.5:
+                continue
+
+            w = max(1, int(frac_dur * n_bins + 0.5))
+
+            s_in = 0.0
+            c_in = 0
+            for b in range(w):
+                s_in += work_flux[i, b]
+                c_in += work_count[i, b]
+
+            for b in range(n_bins):
+                c_out = n_points - c_in
+                if c_in >= 3 and c_out >= 3:
+                    mean_in = s_in / c_in
+                    mean_out = (total_flux - s_in) / c_out
+                    delta = mean_out - mean_in
+
+                    if delta > 0.0:
+                        power = (c_in * c_out * delta * delta) / n_points
+                        if power > best_power:
+                            best_power = power
+                            best_depth = delta
+                            best_dur = dur
+                            center_bin = (b + w / 2.0) % n_bins
+                            best_epoch = (center_bin / n_bins) * period
+
+                s_in -= work_flux[i, b % n_bins]
+                c_in -= work_count[i, b % n_bins]
+                add_bin = (b + w) % n_bins
+                s_in += work_flux[i, add_bin]
+                c_in += work_count[i, add_bin]
+
+        powers_out[i] = best_power
+        depths_out[i] = best_depth
+        durations_out[i] = best_dur
+        epochs_out[i] = best_epoch
+
+
+@timing
+def run_bls_gpu(
+    time: np.ndarray,
+    flux: np.ndarray,
+    tic_id: str = "unknown",
+    min_period: float = config.BLS_MIN_PERIOD_DAYS,
+    max_period: float = config.BLS_MAX_PERIOD_DAYS,
+    num_periods: int = config.BLS_NUM_PERIODS,
+    durations_hours: list[float] | None = None,
+) -> TransitCandidate | None:
+    """Run BLS transit search on GPU via Numba CUDA.
+
+    If no CUDA GPU is detected, falls back to the CPU Numba
+    implementation transparently.
+
+    Args:
+        time: Array of timestamps (BTJD).
+        flux: Array of normalized flux values.
+        tic_id: Target identifier.
+        min_period: Minimum trial period in days.
+        max_period: Maximum trial period in days.
+        num_periods: Number of trial periods.
+        durations_hours: List of trial durations in hours.
+
+    Returns:
+        A ``TransitCandidate`` if a signal is found, or ``None``.
+    """
+    if not _CUDA_AVAILABLE:
+        logger.info("No CUDA GPU detected — falling back to CPU Numba BLS")
+        return run_bls_numba(
+            time, flux, tic_id=tic_id,
+            min_period=min_period, max_period=max_period,
+            num_periods=num_periods, durations_hours=durations_hours,
+        )
+
+    if durations_hours is None:
+        durations_hours = config.BLS_DURATIONS_HOURS
+
+    logger.info("Running BLS (GPU/CUDA) on %s", tic_id)
+
+    # Wrap the entire GPU execution in a safety net.
+    # Numba CUDA can crash (segfault) on some environments (e.g. WSL2
+    # with certain driver versions) during kernel compilation.  If
+    # anything goes wrong, fall back to CPU Numba transparently.
+    try:
+        return _run_bls_gpu_inner(
+            time, flux, tic_id, min_period, max_period,
+            num_periods, durations_hours,
+        )
+    except Exception as exc:
+        logger.warning(
+            "GPU BLS failed (%s) — falling back to CPU Numba", exc
+        )
+        return run_bls_numba(
+            time, flux, tic_id=tic_id,
+            min_period=min_period, max_period=max_period,
+            num_periods=num_periods, durations_hours=durations_hours,
+        )
+
+
+def _run_bls_gpu_inner(
+    time: np.ndarray,
+    flux: np.ndarray,
+    tic_id: str,
+    min_period: float,
+    max_period: float,
+    num_periods: int,
+    durations_hours: list[float],
+) -> TransitCandidate | None:
+    """Inner GPU BLS implementation (called by run_bls_gpu with safety wrapper)."""
+    periods = np.linspace(min_period, max_period, num_periods)
+    durations_days = np.array([d / 24.0 for d in durations_hours])
+
+    n_points = len(time)
+    n_durations = len(durations_days)
+    n_bins = _N_GPU_BINS
+    total_flux = float(np.sum(flux))
+
+    # Transfer data to GPU
+    d_time = _cuda.to_device(time.astype(np.float64))
+    d_flux = _cuda.to_device(flux.astype(np.float64))
+    d_periods = _cuda.to_device(periods.astype(np.float64))
+    d_durations = _cuda.to_device(durations_days.astype(np.float64))
+
+    # Output arrays on GPU
+    d_powers = _cuda.device_array(num_periods, dtype=np.float64)
+    d_depths = _cuda.device_array(num_periods, dtype=np.float64)
+    d_best_durs = _cuda.device_array(num_periods, dtype=np.float64)
+    d_epochs = _cuda.device_array(num_periods, dtype=np.float64)
+
+    # Work arrays for per-thread bin data (global memory, not local)
+    d_work_flux = _cuda.device_array((num_periods, n_bins), dtype=np.float64)
+    d_work_count = _cuda.device_array((num_periods, n_bins), dtype=np.int64)
+
+    # Launch kernel: 128 threads per block (conservative for memory)
+    threads_per_block = 128
+    blocks = (num_periods + threads_per_block - 1) // threads_per_block
+
+    _bls_core_gpu[blocks, threads_per_block](
+        d_time, d_flux, d_periods, d_durations,
+        n_points, n_durations, n_bins, total_flux,
+        d_work_flux, d_work_count,
+        d_powers, d_depths, d_best_durs, d_epochs,
+    )
+
+    # Copy results back to CPU
+    powers = d_powers.copy_to_host()
+    depths_arr = d_depths.copy_to_host()
+    best_durations = d_best_durs.copy_to_host()
+    epochs_arr = d_epochs.copy_to_host()
+
+    # Find best period
+    best_idx = int(np.argmax(powers))
+    best_period = float(periods[best_idx])
+    best_depth = float(depths_arr[best_idx])
+    best_duration = float(best_durations[best_idx])
+    best_epoch = float(epochs_arr[best_idx])
+    best_power = float(powers[best_idx])
+
+    if best_depth <= 0:
+        logger.warning("No transit signal found for %s (GPU)", tic_id)
+        return None
+
+    # Estimate SNR
+    phase = (time % best_period) / best_period
+    fractional_dur = best_duration / best_period
+    phase_center = best_epoch / best_period
+    diff = np.abs(phase - phase_center)
+    diff = np.minimum(diff, 1.0 - diff)
+    out_mask = diff >= fractional_dur / 2.0
+    out_flux = flux[out_mask]
+    scatter = float(np.std(out_flux)) if len(out_flux) > 0 else 1.0
+    n_in = int(np.sum(~out_mask))
+    snr = best_depth / scatter * np.sqrt(n_in) if scatter > 0 else 0.0
+
+    time_span = float(time[-1] - time[0])
+    n_transits = max(1, int(time_span / best_period))
+
+    candidate = TransitCandidate(
+        tic_id=tic_id,
+        period=best_period,
+        epoch=best_epoch,
+        duration=best_duration,
+        depth=best_depth,
+        snr=float(snr),
+        bls_power=best_power,
+        n_transits=n_transits,
+    )
+
+    logger.info(
+        "BLS (GPU) result for %s: P=%.4f d, depth=%.4f%%, SNR=%.1f",
+        tic_id, best_period, best_depth * 100, snr,
+    )
+    return candidate
+
+
+# ---------------------------------------------------------------------------
 # Iterative multi-planet BLS search
 # ---------------------------------------------------------------------------
 

@@ -39,7 +39,7 @@ from tqdm import tqdm
 from exohunter import config
 from exohunter.catalog.candidates import CandidateCatalog
 from exohunter.catalog.crossmatch import crossmatch_candidate
-from exohunter.detection.bls import run_bls_lightkurve, run_iterative_bls
+from exohunter.detection.bls import run_bls_gpu, run_bls_lightkurve, run_iterative_bls
 from exohunter.detection.validator import validate_candidate
 from exohunter.ingestion.downloader import download_lightcurve
 from exohunter.preprocessing.pipeline import preprocess_single
@@ -259,6 +259,7 @@ def run_batch(
     single_sector: bool = False,
     classify_mode: str | None = None,
     multi_planet: bool = False,
+    bls_gpu: bool = False,
 ) -> tuple[CandidateCatalog, pd.DataFrame]:
     """Run the full ExoHunter pipeline on a TESS sector.
 
@@ -438,6 +439,15 @@ def run_batch(
                     max_period=target_max_period,
                     num_periods=target_num_periods,
                 )
+            elif bls_gpu:
+                single = run_bls_gpu(
+                    processed.time, processed.flux,
+                    tic_id=tic_id,
+                    min_period=min_period,
+                    max_period=target_max_period,
+                    num_periods=target_num_periods,
+                )
+                detected = [single] if single is not None else []
             else:
                 single = run_bls_lightkurve(
                     lc_for_bls,
@@ -692,6 +702,16 @@ def parse_args() -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--bls-gpu",
+        action="store_true",
+        default=False,
+        help=(
+            "Use GPU-accelerated BLS via Numba CUDA. Requires an NVIDIA GPU. "
+            "Falls back to CPU Numba if no GPU is detected."
+        ),
+    )
+
+    parser.add_argument(
         "--multi-planet",
         action="store_true",
         default=False,
@@ -770,6 +790,7 @@ def main() -> None:
         single_sector=args.single_sector,
         classify_mode=args.classify_mode,
         multi_planet=args.multi_planet,
+        bls_gpu=args.bls_gpu,
     )
 
     # Save results

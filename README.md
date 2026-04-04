@@ -445,7 +445,7 @@ known periods and depths. It verifies:
 - [x] ~~Real-time query to the NASA Exoplanet Archive via astroquery TAP~~
 - [x] ~~Automatic alerts for new candidate detections~~
 - [x] ~~VOTable export for Virtual Observatory interoperability~~
-- [ ] GPU-accelerated BLS using CUDA (via Numba or CuPy)
+- [x] ~~GPU-accelerated BLS using CUDA (via Numba CUDA, with CPU fallback)~~
 - [x] ~~Multi-planet search: iteratively subtract detected transits and re-run BLS~~
 
 ---
