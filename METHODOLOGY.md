@@ -178,7 +178,7 @@ astrophysical criteria.
 **Module**: `exohunter/detection/`
 
 **Key files**:
-- `bls.py` — two BLS implementations + `TransitCandidate` dataclass
+- `bls.py` — three BLS implementations (lightkurve C, Numba CPU, Numba CUDA GPU) + `TransitCandidate` dataclass
 - `validator.py` — six validation tests + `ValidationResult` dataclass
 - `model.py` — trapezoidal transit model + phase folding + binning
 
@@ -287,7 +287,29 @@ class TransitCandidate:
     name: str          # optional, e.g. "TOI-700 d" (default "")
 ```
 
-### 4.7 Validation
+### 4.7 BLS implementation C: GPU (Numba CUDA)
+
+`run_bls_gpu()` runs the same prefix-sum binned algorithm on an
+NVIDIA GPU via Numba CUDA. One CUDA thread per trial period, using
+global device memory for the bin arrays (128 bins vs 300 on CPU to
+fit the GPU memory budget).
+
+```bash
+python scripts/run_batch.py --sector 56 --bls-gpu
+```
+
+**Fallback chain**: If no CUDA GPU is detected, or if the kernel fails
+to compile (known issue on WSL2), the function falls back to CPU Numba
+transparently. The safety wrapper catches all exceptions including
+driver-level crashes.
+
+| Implementation | Parallelism | Hardware |
+|---|---|---|
+| lightkurve (C) | Single-threaded | CPU |
+| Numba (CPU) | `prange` across cores | CPU |
+| Numba (CUDA) | One thread per period | NVIDIA GPU |
+
+### 4.8 Validation
 
 Six tests are applied to each `TransitCandidate`:
 
@@ -621,7 +643,13 @@ previously found periods. If the ratio is within 1% of 1:1, 2:1, 1:2,
 3:1, or 1:3, the iteration stops to prevent the same signal from being
 "rediscovered" at a harmonic.
 
-### 7.6 ML classification (`--classify`)
+### 7.6 GPU BLS (`--bls-gpu`)
+
+When enabled, uses `run_bls_gpu()` instead of `run_bls_lightkurve()`.
+Requires an NVIDIA GPU with CUDA. Falls back to CPU Numba if GPU is
+unavailable or kernel compilation fails.
+
+### 7.7 ML classification (`--classify`)
 
 When enabled, loads the trained Random Forest from
 `data/models/transit_classifier.joblib` and classifies each candidate
@@ -725,7 +753,7 @@ All configurable parameters are centralized in `exohunter/config.py`:
 - Synthetic light curves with known injected parameters
 - Deterministic random seeds for reproducibility
 
-### 9.2 Test coverage (192 tests)
+### 9.2 Test coverage (200 tests)
 
 | Module | Tests | What is verified |
 |--------|-------|-----------------|
@@ -742,6 +770,7 @@ All configurable parameters are centralized in `exohunter/config.py`:
 | `test_preprocessing.py` | 7 | Signal preservation, output fields, cadence retention, outlier removal, normalization, flatten variability |
 | `test_utils.py` | 8 | Logger, @timing decorator, thread pool order + exceptions, process pool order, empty input |
 | `test_validator.py` | 14 | All 6 criteria pass/fail, boundary cases, overall logic |
+| `test_gpu_bls.py` | 8 | GPU BLS fallback, period recovery, CPU/GPU agreement, availability flags, edge cases |
 
 ### 9.3 Synthetic data generation
 
@@ -771,7 +800,7 @@ git clone https://github.com/dobidu/exohunter.git
 cd exohunter
 python -m venv venv && source venv/bin/activate
 pip install -e ".[dev]"
-pytest                    # 192 tests, all offline
+pytest                    # 200 tests, all offline
 ```
 
 ### 10.2 Download the TOI catalog

@@ -6,7 +6,7 @@
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-192%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-200%20passed-brightgreen.svg)]()
 
 ---
 
@@ -80,10 +80,11 @@ A key feature of the pipeline is its optimized concurrency model, which uses spe
 
 | Implementation | 10k periods, 20k cadences | Notes |
 |---|---|---|
-| Numba (prefix-sum bins) | **0.20 s** | Binned cumulative sums, O(n_periods × n_bins) |
+| Numba CPU (prefix-sum) | **0.20 s** | Binned cumulative sums, O(n_periods × n_bins) |
 | lightkurve/astropy (C) | 1.19 s | Production baseline |
+| Numba CUDA (GPU) | varies | One thread per period; requires NVIDIA GPU (`--bls-gpu`) |
 
-*Measured on Intel Core i7-13650HX (20 threads), 32 GB RAM, WSL2 Linux.*
+*CPU measured on Intel Core i7-13650HX (20 threads), 32 GB RAM, WSL2 Linux.*
 
 ---
 
@@ -105,7 +106,7 @@ source venv/bin/activate    # Linux / macOS
 # venv\Scripts\activate     # Windows (PowerShell)
 
 pip install -e ".[dev]"
-pytest                       # 192 tests, all offline
+pytest                       # 200 tests, all offline
 ```
 
 ### Download the TOI catalog (optional, for cross-matching)
@@ -190,6 +191,9 @@ python scripts/run_batch.py --sector 56 --multi-planet
 
 # ML classification: add ml_class and ml_prob_planet to each candidate
 python scripts/run_batch.py --sector 56 --classify
+
+# GPU-accelerated BLS (requires NVIDIA CUDA; falls back to CPU if unavailable)
+python scripts/run_batch.py --sector 56 --bls-gpu
 
 # Combine all modes
 python scripts/run_batch.py --sector 56 --multi-sector --multi-planet --classify
@@ -387,7 +391,7 @@ the candidate score but do not reject the candidate outright.
 ## Running tests
 
 ```bash
-pytest                                          # 192 tests, all offline
+pytest                                          # 200 tests, all offline
 pytest -v                                       # verbose
 pytest --cov=exohunter --cov-report=term-missing  # with coverage
 pytest tests/test_bls.py -v                     # single module

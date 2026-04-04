@@ -17,8 +17,9 @@ study group at UFPB (Universidade Federal da Paraiba).
   and local FITS cache (astropy Table I/O for reliable roundtrip)
 - **Preprocessing**: clean (NaN removal, 5-sigma clipping), normalize,
   Savitzky-Golay detrending via ProcessPoolExecutor (N-1 cores)
-- **BLS detection**: two implementations — lightkurve/astropy (C) and
-  Numba prefix-sum (5.8x faster); iterative multi-planet search via
+- **BLS detection**: three implementations — lightkurve/astropy (C),
+  Numba CPU prefix-sum (5.8x faster), and Numba CUDA GPU (`--bls-gpu`,
+  with automatic CPU fallback); iterative multi-planet search via
   transit model subtraction (up to 5 planets per star)
 - **Validation**: 6-criterion astrophysical validator (SNR, depth,
   duration, transit count, V-shape, harmonics)
@@ -92,8 +93,8 @@ study group at UFPB (Universidade Federal da Paraiba).
 
 ### Testing
 
-- 192 tests across 12 test files, all running offline (no network)
-- Covers: BLS (lightkurve + Numba + iterative), cache roundtrip,
+- 200 tests across 13 test files, all running offline (no network)
+- Covers: BLS (lightkurve + Numba CPU + GPU + iterative), cache roundtrip,
   catalog (scoring, ranking, crossmatch, staleness), classification
   (RF + CNN), dashboard (figures, layout, demo data), export
   (CSV/FITS/VOTable), alerts, data overview, transit model,
