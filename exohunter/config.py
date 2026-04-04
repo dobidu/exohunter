@@ -20,11 +20,12 @@ RESULTS_DIR: Path = DATA_DIR / "results"
 REPORTS_DIR: Path = DATA_DIR / "reports"
 DATASETS_DIR: Path = DATA_DIR / "datasets"
 MODELS_DIR: Path = DATA_DIR / "models"
+ALERTS_DIR: Path = DATA_DIR / "alerts"
 DATASETS_SOURCES: Path = DATA_DIR / "datasets_sources.json"
 
 # Ensure data directories exist at import time
 for _dir in (CACHE_DIR, CATALOG_DIR, OUTPUT_DIR, RESULTS_DIR, REPORTS_DIR,
-             DATASETS_DIR, MODELS_DIR):
+             DATASETS_DIR, MODELS_DIR, ALERTS_DIR):
     _dir.mkdir(parents=True, exist_ok=True)
 
 # ---------------------------------------------------------------------------
@@ -116,6 +117,14 @@ DASHBOARD_DATA_SOURCE: str = "demo"
 # from the NASA Exoplanet Archive via TAP.  Set to 0 to always
 # query live.  Set to a large number to effectively disable auto-refresh.
 TOI_CATALOG_MAX_AGE_HOURS: float = 48.0
+
+# ---------------------------------------------------------------------------
+# Alerts
+# ---------------------------------------------------------------------------
+
+# Webhook URL for alert notifications.  Set to "" to disable.
+# Supports Slack, Discord, or any service that accepts a JSON POST.
+ALERTS_WEBHOOK_URL: str = ""
 
 # ---------------------------------------------------------------------------
 # Logging

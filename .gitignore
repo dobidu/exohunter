@@ -35,6 +35,7 @@ data/results/*
 data/reports/*
 data/datasets/*
 data/models/*
+data/alerts/*
 !data/**/.gitkeep
 
 # OS

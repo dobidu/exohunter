@@ -438,7 +438,7 @@ known periods and depths. It verifies:
 - [x] ~~ML candidate classification (Random Forest trained on Kepler KOI, 3 classes)~~
 - [ ] CNN classification on phase curves (upgrade from tabular RF)
 - [x] ~~Real-time query to the NASA Exoplanet Archive via astroquery TAP~~
-- [ ] Automatic alerts for new candidate detections
+- [x] ~~Automatic alerts for new candidate detections~~
 - [x] ~~VOTable export for Virtual Observatory interoperability~~
 - [ ] GPU-accelerated BLS using CUDA (via Numba or CuPy)
 - [x] ~~Multi-planet search: iteratively subtract detected transits and re-run BLS~~

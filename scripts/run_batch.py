@@ -758,6 +758,12 @@ def main() -> None:
         export_to_csv(catalog, output_path=catalog_path)
         logger.info("Candidate catalog saved to: %s", catalog_path)
 
+    # Check for alert-worthy new candidates and dispatch alerts
+    from exohunter.alerts import check_and_dispatch_alerts
+    n_alerts = check_and_dispatch_alerts(summary_df, sector=args.sector)
+    if n_alerts > 0:
+        logger.info("Dispatched alerts for %d new candidate(s)", n_alerts)
+
 
 if __name__ == "__main__":
     main()
