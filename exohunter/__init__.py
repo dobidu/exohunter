@@ -5,7 +5,7 @@ featuring concurrent data processing, BLS periodogram analysis,
 and an interactive Plotly Dash dashboard for visualization.
 """
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"
 __author__ = "ExoHunter Team — UFPB"
 
 # Suppress the astropy UnitsWarning for 'btjd' (Barycentric TESS Julian Date).

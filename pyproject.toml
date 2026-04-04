@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "exohunter"
-version = "0.1.0"
+version = "1.0.0"
 description = "Concurrent exoplanet transit detection pipeline for NASA TESS data"
 readme = "README.md"
 license = "MIT"
@@ -47,7 +47,7 @@ cnn = [
 ]
 
 [project.urls]
-Repository = "https://github.com/exohunter-ufpb/exohunter"
+Repository = "https://github.com/dobidu/exohunter"
 
 [tool.setuptools.packages.find]
 include = ["exohunter*"]

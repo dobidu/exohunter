@@ -133,22 +133,22 @@ Each of these is a self-contained project that a student can take on:
 - Add more validation criteria to `detection/validator.py`
 - Improve error messages and logging throughout the codebase
 - Add more synthetic test cases to `tests/`
-- Write a Jupyter notebook tutorial for a specific module
+- Implement real Kepler light curve download for CNN training (`--real-curves` in `train_cnn.py`)
 
 ### Intermediate
 
-- ~~Implement VOTable export~~ (done — see `export_to_votable()` in `catalog/export.py`)
 - Add a stellar classification panel to the dashboard
-- Implement a CLI progress bar for batch processing
 - Create a configuration file parser (YAML/TOML) for pipeline parameters
+- Implement a secondary eclipse detector (check for dip at phase 0.5)
+- Add a Jupyter notebook for a specific TESS sector analysis
 
 ### Advanced
 
 - Implement BLS in C with Python bindings (ctypes or cffi)
-- Add a Random Forest classifier for candidate triage in `detection/`
-- Build a real-time query to NASA Exoplanet Archive in `catalog/crossmatch.py`
 - Implement GPU-accelerated BLS using CUDA (via Numba or CuPy)
 - Add OpenMP parallelism to the C BLS implementation
+- Upgrade the CNN classifier with attention layers or a transformer architecture
+- Build a web API (FastAPI) to expose the pipeline as a REST service
 
 ## Questions?
 
