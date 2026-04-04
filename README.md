@@ -6,7 +6,7 @@
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-152%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-192%20passed-brightgreen.svg)]()
 
 ---
 
@@ -51,27 +51,22 @@ A key feature of the pipeline is its optimized concurrency model, which uses spe
 1.  **INGESTION**
     * **Description:** Data acquisition layer that downloads TESS light curves.
     * **Architecture:** Uses a `ThreadPoolExecutor` (8 threads) to manage multiple simultaneous downloads, mitigating network latency. It includes retry logic with exponential backoff and a local FITS cache to save previously downloaded files, using `astropy.io`.
-    * **Icons:** A TESS telescope observing a star system and a direct download symbol.
 
 2.  **PREPROCESSING**
     * **Description:** Signal cleaning and data conditioning.
     * **Architecture:** Utilizes a `ProcessPoolExecutor` (all N-1 CPU cores) for true parallel processing of multiple stars, bypassing Python's GIL. This stage removes outliers via sigma-clipping, normalizes the flux, and detrends stellar variability using a Savitzky-Golay flattening filter.
-    * **Icons:** A "sigma-clipping" plot showing outlier removal and a "normalization/detrending" plot showing a stabilized light curve.
 
 3.  **DETECTION**
     * **Description:** The core transit search engine.
     * **Architecture:** Employs a JIT-compiled parallel loop via `numba.prange`. It features two implementations of the Box Least Squares (BLS) algorithm: a standard production-baseline C implementation and a custom **Numba prefix-sum optimization** that achieves **5.8x faster** processing than the C baseline for large period searches. It also performs transit validation.
-    * **Icons:** A BLS Periodogram graph (power vs. period) and side-by-side performance indicators for the 'C (baseline)' and 'Numba (optimized)' engines.
 
 4.  **CATALOG**
     * **Description:** Results management and verification.
     * **Action:** This stage manages the generated candidate catalog. It performs real-time cross-matching against the [ExoFOP-TESS TOI catalog](https://exofop.ipac.caltech.edu/tess/) and ranks candidates using a unique **4-tier classification** and scoring system. Data can be exported to standard CSV or scientific FITS table formats.
-    * **Icons:** A bar graph showing 'Ranking & Scoring' and an interactive globe icon symbolizing 'Cross-matching'.
 
 5.  **DASHBOARD**
     * **Description:** Final visualization and analysis layer.
     * **Technology:** Built with Plotly Dash (using a custom DARKLY theme), it presents pipeline results in an interactive interface. It includes a sky map with RA/Dec coordinates, detailed light curve plots with model fits, a phase diagram, and filterable candidate tables.
-    * **Icons:** A screen mockup showing the fully interactive dashboard application, displaying multiple data plots.
 
 ### Concurrency model
 
@@ -110,7 +105,7 @@ source venv/bin/activate    # Linux / macOS
 # venv\Scripts\activate     # Windows (PowerShell)
 
 pip install -e ".[dev]"
-pytest                       # 152 tests, all offline
+pytest                       # 192 tests, all offline
 ```
 
 ### Download the TOI catalog (optional, for cross-matching)
@@ -331,13 +326,17 @@ exohunter/
 ├── classification/              # Layer 4b: ML classification
 │   ├── datasets.py              #   Download + prepare Kepler KOI / ExoFOP
 │   ├── features.py              #   Candidate → 10-feature vector
-│   └── model.py                 #   RandomForest train / save / load / predict
+│   ├── model.py                 #   RandomForest train / save / load / predict
+│   └── cnn.py                   #   1D CNN on phase curves (PyTorch)
 │
 ├── dashboard/                   # Layer 5: Visualization
 │   ├── app.py                   #   Dash application factory
 │   ├── layouts.py               #   DARKLY layout with sector selector
 │   ├── callbacks.py             #   Interactive callbacks + data loading
-│   └── figures.py               #   Plotly figure generators
+│   ├── figures.py               #   Plotly figure generators
+│   └── overview.py              #   Data overview scanners (cache, results, alerts)
+│
+├── alerts.py                    # Alert dispatch (file + webhook)
 │
 └── utils/                       # Shared infrastructure
     ├── logging.py               #   Structured logging (never print())
@@ -388,7 +387,7 @@ the candidate score but do not reject the candidate outright.
 ## Running tests
 
 ```bash
-pytest                                          # 152 tests, all offline
+pytest                                          # 192 tests, all offline
 pytest -v                                       # verbose
 pytest --cov=exohunter --cov-report=term-missing  # with coverage
 pytest tests/test_bls.py -v                     # single module
@@ -429,6 +428,7 @@ known periods and depths. It verifies:
 | [THEORY.md](THEORY.md) | Students new to astronomy | Transit method, TESS mission, BLS algorithm, noise sources, validation criteria, TOI-700 system, further reading |
 | [METHODOLOGY.md](METHODOLOGY.md) | Developers | Pipeline stages, algorithms, data structures, configuration reference, dashboard callback chain, testing strategy |
 | [ML_GUIDE.md](ML_GUIDE.md) | Students / ML practitioners | Dataset download, feature engineering, model training, classifier usage, architecture, extension ideas |
+| [DASHBOARD.md](DASHBOARD.md) | All users | Dashboard panels, data overview, filters, interpretation guide, screenshots |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Contributors | Setup, code conventions, commit format, open contribution areas by difficulty |
 
 ---
