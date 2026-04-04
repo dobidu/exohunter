@@ -161,6 +161,35 @@ class TestSaveAlertFile:
             cfg.ALERTS_DIR = original_dir
 
 
+class TestSendWebhook:
+    """Test the webhook dispatch (without real HTTP)."""
+
+    def test_skips_when_no_url(self) -> None:
+        """send_webhook must return False when URL is empty."""
+        from exohunter.alerts import send_webhook
+
+        payload = {"n_candidates": 1, "candidates": [{"tic_id": "X"}], "sector": 1}
+        result = send_webhook(payload, url="")
+        assert result is False
+
+    def test_skips_when_url_none(self) -> None:
+        """send_webhook must return False when URL is None."""
+        from exohunter.alerts import send_webhook
+
+        payload = {"n_candidates": 1, "candidates": [{"tic_id": "X"}], "sector": 1}
+        result = send_webhook(payload, url=None)
+        # With config default ALERTS_WEBHOOK_URL = "", should skip
+        assert result is False
+
+    def test_fails_gracefully_on_bad_url(self) -> None:
+        """send_webhook must return False (not crash) for invalid URLs."""
+        from exohunter.alerts import send_webhook
+
+        payload = {"n_candidates": 1, "candidates": [{"tic_id": "X"}], "sector": 1}
+        result = send_webhook(payload, url="http://192.0.2.1:1/nonexistent")
+        assert result is False
+
+
 class TestCheckAndDispatch:
     """Test the end-to-end alert dispatch."""
 

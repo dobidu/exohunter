@@ -131,3 +131,27 @@ class TestPreprocessingSingle:
         assert len(lc_back) == len(processed.time)
         np.testing.assert_array_almost_equal(lc_back.flux.value, processed.flux)
         np.testing.assert_array_almost_equal(lc_back.time.value, processed.time)
+
+    def test_flatten_reduces_variability(self) -> None:
+        """flatten_lightcurve must reduce low-frequency stellar variability."""
+        from exohunter.preprocessing.detrend import flatten_lightcurve
+        from exohunter.preprocessing.normalize import normalize_lightcurve
+
+        time = np.linspace(0, 90, 15000)
+        # Flux with a strong 5-day sinusoidal variability
+        flux = 1.0 + 0.01 * np.sin(2 * np.pi * time / 5.0)
+        flux += np.random.default_rng(42).normal(0, 0.001, len(time))
+
+        lc = LightCurve(time=time, flux=flux)
+        lc = normalize_lightcurve(lc)
+        flattened = flatten_lightcurve(lc)
+
+        # After flattening, the std should be much smaller
+        # (the 1% sinusoid should be mostly removed)
+        raw_std = np.std(lc.flux.value)
+        flat_std = np.std(flattened.flux.value)
+
+        assert flat_std < raw_std * 0.5, (
+            f"Flattening did not reduce variability enough: "
+            f"raw_std={raw_std:.6f}, flat_std={flat_std:.6f}"
+        )

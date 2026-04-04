@@ -159,6 +159,32 @@ class TestAppCreation:
         for comp_id in required_ids:
             assert comp_id in layout_str, f"Component '{comp_id}' not found in layout"
 
+    def test_individual_layout_builders_return_components(self) -> None:
+        """Each layout builder must return a Dash component without crashing."""
+        from exohunter.dashboard.layouts import (
+            make_navbar, make_sidebar, make_new_candidates_panel,
+            make_main_content, make_candidate_table, make_data_overview,
+        )
+
+        # Each builder must return without error and produce a component
+        navbar = make_navbar()
+        assert navbar is not None
+
+        sidebar = make_sidebar()
+        assert sidebar is not None
+
+        panel = make_new_candidates_panel()
+        assert panel is not None
+
+        content = make_main_content()
+        assert content is not None
+
+        table = make_candidate_table()
+        assert table is not None
+
+        overview = make_data_overview()
+        assert overview is not None
+
 
 class TestFigureGeneration:
     """Test that figure generators produce valid Plotly figures."""
