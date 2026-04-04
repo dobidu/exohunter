@@ -352,6 +352,14 @@ exohunter/
 | `scripts/download_training_data.py` | Download Kepler KOI + ExoFOP datasets for ML training |
 | `scripts/train_classifier.py` | Train the Random Forest transit classifier |
 
+### Notebooks
+
+| Notebook | Audience | Description |
+|----------|----------|-------------|
+| [`00_lecture_introduction`](notebooks/00_lecture_introduction.ipynb) | First-time students | Theory + implementation explained together with interactive animations (transit geometry, preprocessing steps, BLS intuition, validation flowchart) |
+| [`01_exploratory`](notebooks/01_exploratory.ipynb) | All students | Guided pipeline walkthrough on TOI-700 — download, preprocess, BLS, phase-fold sweep animation, multi-planet search |
+| [`02_student_exercises`](notebooks/02_student_exercises.ipynb) | Graded assignment | Independent analysis of L 98-59 — discover the planets, validate, cross-match, measure detection limits via injection-recovery |
+
 ---
 
 ## Validation criteria
@@ -412,6 +420,7 @@ known periods and depths. It verifies:
 
 | Document | Audience | Contents |
 |----------|----------|----------|
+| [00_lecture_introduction.ipynb](notebooks/00_lecture_introduction.ipynb) | First-time students | Interactive lecture: theory + code with animated infographics |
 | [THEORY.md](THEORY.md) | Students new to astronomy | Transit method, TESS mission, BLS algorithm, noise sources, validation criteria, TOI-700 system, further reading |
 | [METHODOLOGY.md](METHODOLOGY.md) | Developers | Pipeline stages, algorithms, data structures, configuration reference, dashboard callback chain, testing strategy |
 | [ML_GUIDE.md](ML_GUIDE.md) | Students / ML practitioners | Dataset download, feature engineering, model training, classifier usage, architecture, extension ideas |
