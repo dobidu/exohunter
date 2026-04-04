@@ -455,5 +455,5 @@ known periods and depths. It verifies:
 
 ---
 
-*Built at [UFPB Centro de Informatica](https://ci.ufpb.br/) as a
+*Built at [UFPB's Centro de Informatica](https://ci.ufpb.br/) as a
 teaching resource for concurrent programming and scientific computing.*
