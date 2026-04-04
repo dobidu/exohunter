@@ -436,7 +436,7 @@ known periods and depths. It verifies:
 - [x] ~~Numba BLS optimized with prefix-sum algorithm (5.8x faster than C)~~
 - [ ] BLS implementation in C with OpenMP for comparison benchmarks
 - [x] ~~ML candidate classification (Random Forest trained on Kepler KOI, 3 classes)~~
-- [ ] CNN classification on phase curves (upgrade from tabular RF)
+- [x] ~~CNN classification on phase curves (1D CNN on phase-folded light curves via PyTorch)~~
 - [x] ~~Real-time query to the NASA Exoplanet Archive via astroquery TAP~~
 - [x] ~~Automatic alerts for new candidate detections~~
 - [x] ~~VOTable export for Virtual Observatory interoperability~~

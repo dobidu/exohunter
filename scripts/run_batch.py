@@ -257,7 +257,7 @@ def run_batch(
     download_workers: int = config.DEFAULT_DOWNLOAD_WORKERS,
     multi_sector: bool = False,
     single_sector: bool = False,
-    classify: bool = False,
+    classify_mode: str | None = None,
     multi_planet: bool = False,
 ) -> tuple[CandidateCatalog, pd.DataFrame]:
     """Run the full ExoHunter pipeline on a TESS sector.
@@ -375,16 +375,24 @@ def run_batch(
 
     # Load ML classifier if requested
     ml_pipeline = None
-    if classify:
+    ml_cnn_model = None
+    if classify_mode == "rf":
         try:
             from exohunter.classification.model import load_model
             ml_pipeline = load_model()
-            logger.info("ML classifier loaded — predictions will be added to results")
+            logger.info("Random Forest classifier loaded")
         except FileNotFoundError:
             logger.warning(
-                "No trained ML model found — skipping classification. "
+                "No trained RF model found — skipping. "
                 "Run: python scripts/train_classifier.py"
             )
+    elif classify_mode == "cnn":
+        try:
+            from exohunter.classification.cnn import load_cnn_model
+            ml_cnn_model = load_cnn_model()
+            logger.info("CNN classifier loaded")
+        except (FileNotFoundError, ImportError) as exc:
+            logger.warning("CNN classifier not available: %s", exc)
 
     catalog = CandidateCatalog()
     summary_rows: list[dict] = []
@@ -474,17 +482,29 @@ def run_batch(
                         catalog.add(candidate, validation)
                         status = xmatch_class.lower()
 
-                # ML classification (if model loaded)
+                # ML classification (RF or CNN, if model loaded)
                 ml_class = ""
                 ml_prob_planet = 0.0
                 if ml_pipeline is not None:
                     from exohunter.classification.features import candidate_to_features
-                    from exohunter.classification.model import classify_candidates
+                    from exohunter.classification.model import classify_candidates as rf_classify
                     import pandas as _pd
 
                     feat = candidate_to_features(candidate, validation)
                     feat_df = _pd.DataFrame([feat])
-                    ml_result = classify_candidates(ml_pipeline, feat_df)
+                    ml_result = rf_classify(ml_pipeline, feat_df)
+                    ml_class = str(ml_result.iloc[0]["ml_class"])
+                    ml_prob_planet = float(ml_result.iloc[0].get("ml_prob_planet", 0.0))
+                elif ml_cnn_model is not None:
+                    from exohunter.classification.cnn import (
+                        candidate_to_phase_curve, classify_phase_curves,
+                    )
+
+                    phase_curve = candidate_to_phase_curve(
+                        processed.time, processed.flux,
+                        candidate.period, candidate.epoch,
+                    )
+                    ml_result = classify_phase_curves(ml_cnn_model, phase_curve)
                     ml_class = str(ml_result.iloc[0]["ml_class"])
                     ml_prob_planet = float(ml_result.iloc[0].get("ml_prob_planet", 0.0))
 
@@ -682,17 +702,30 @@ def parse_args() -> argparse.Namespace:
             "(stops when SNR < 5.0 or a harmonic/duplicate is detected)."
         ),
     )
-    parser.add_argument(
+    classify_group = parser.add_mutually_exclusive_group()
+    classify_group.add_argument(
         "--classify",
-        action="store_true",
-        default=False,
+        action="store_const",
+        const="rf",
+        dest="classify_mode",
         help=(
-            "Run the ML classifier on each candidate after BLS detection. "
-            "Requires a trained model at data/models/transit_classifier.joblib "
-            "(run train_classifier.py first). Adds ml_class and ml_prob_planet "
-            "columns to the output CSV."
+            "Run the Random Forest classifier (tabular features). "
+            "Requires data/models/transit_classifier.joblib "
+            "(run train_classifier.py first)."
         ),
     )
+    classify_group.add_argument(
+        "--classify-cnn",
+        action="store_const",
+        const="cnn",
+        dest="classify_mode",
+        help=(
+            "Run the CNN classifier (phase curve input). "
+            "Requires data/models/transit_cnn.pt and PyTorch "
+            "(run train_cnn.py first)."
+        ),
+    )
+    parser.set_defaults(classify_mode=None)
 
     # Sector download mode
     sector_mode = parser.add_mutually_exclusive_group()
@@ -735,7 +768,7 @@ def main() -> None:
         download_workers=args.workers,
         multi_sector=args.multi_sector,
         single_sector=args.single_sector,
-        classify=args.classify,
+        classify_mode=args.classify_mode,
         multi_planet=args.multi_planet,
     )
 

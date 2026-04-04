@@ -293,14 +293,93 @@ exohunter/classification/
 ├── __init__.py
 ├── datasets.py                  # Download + prepare training DataFrames
 ├── features.py                  # Feature extraction (candidate → vector)
-└── model.py                     # Train, save, load, predict
+├── model.py                     # Random Forest: train, save, load, predict
+└── cnn.py                       # 1D CNN: architecture, phase curves, train, predict
 
 scripts/
 ├── download_training_data.py    # Step 1: download datasets
-└── train_classifier.py          # Step 2: train the model
+├── train_classifier.py          # Step 2a: train the Random Forest
+└── train_cnn.py                 # Step 2b: train the CNN
 ```
 
 ---
+
+## 10. CNN classifier — phase curve approach
+
+### Why CNN?
+
+The Random Forest uses 10 tabular features (period, depth, SNR, etc.).
+The CNN takes a different approach: it looks at the **shape** of the
+phase-folded light curve directly — 201 flux bins covering one full
+orbital phase. This lets it learn subtle morphological patterns
+(ingress/egress shape, V-shape, secondary eclipses) that tabular
+features can't capture.
+
+### Architecture
+
+```
+Input (1 x 201 flux bins)
+  → Conv1d(1→16, k=7) → ReLU → MaxPool(2)
+  → Conv1d(16→32, k=5) → ReLU → MaxPool(2)
+  → Conv1d(32→64, k=3) → ReLU → AdaptiveAvgPool(1)
+  → Flatten → Linear(64→32) → ReLU → Dropout(0.3)
+  → Linear(32→3) → Softmax
+```
+
+### Training
+
+```bash
+# Install PyTorch (CPU or GPU)
+pip install -e ".[cnn]"
+
+# Download datasets (if not already done)
+python scripts/download_training_data.py
+
+# Train the CNN (generates synthetic phase curves from Kepler catalog)
+python scripts/train_cnn.py
+
+# Custom parameters
+python scripts/train_cnn.py --epochs 50 --batch-size 128
+```
+
+The training script:
+1. Loads the Kepler KOI catalog (same as RF)
+2. Generates a synthetic phase curve for each entry using
+   `transit_model()` + Gaussian noise
+3. Trains the 1D CNN with Adam optimizer and class-weighted
+   cross-entropy loss
+4. Saves to `data/models/transit_cnn.pt`
+
+### Usage
+
+```bash
+# Classify batch results with CNN instead of RF
+python scripts/run_batch.py --sector 56 --classify-cnn
+```
+
+### Synthetic vs. real phase curves
+
+By default, training uses **synthetic** phase curves generated from
+catalog parameters (period, depth, duration) + random noise. This is:
+- Fast (no downloads needed)
+- Reproducible (deterministic with fixed seed)
+- Sufficient for teaching and initial classification
+
+For production use, the `--real-curves` flag (not yet implemented)
+would download actual Kepler light curves and generate phase curves
+from real data. This is a contribution opportunity for students.
+
+### RF vs CNN comparison
+
+| Aspect | Random Forest | CNN |
+|--------|--------------|-----|
+| Input | 10 tabular features | 201-bin phase curve |
+| Training data | Kepler KOI catalog (tabular) | Synthetic phase curves |
+| Framework | scikit-learn | PyTorch |
+| GPU needed | No | Optional (CPU works) |
+| Interpretability | Feature importances | Less interpretable |
+| Morphology sensitivity | Low (V-shape is one feature) | High (learns shape patterns) |
+| Usage flag | `--classify` | `--classify-cnn` |
 
 ## 8. Extending the classifier
 
