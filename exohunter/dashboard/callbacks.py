@@ -19,6 +19,7 @@ from typing import Any
 import dash_bootstrap_components as dbc
 import numpy as np
 import pandas as pd
+import dash
 from dash import Dash, Input, Output, State, callback_context, html, no_update
 
 from exohunter import config
@@ -96,14 +97,19 @@ def _scan_available_sectors() -> list[dict]:
             if len(parts) >= 2:
                 sector_num = parts[1]
                 key = f"sector_summary:{csv_path.name}"
-                # Only add if we don't already have a _candidates version
                 existing = [o["value"] for o in options]
-                if not any(f"sector:{name.replace(name, '')}" in v for v in existing):
-                    if not any(f"sector:sector_{sector_num}_candidates.csv" in v for v in existing):
-                        options.append({
-                            "label": f"Sector {sector_num} (summary only)",
-                            "value": key,
-                        })
+                if not any(f"sector:sector_{sector_num}_candidates.csv" in v for v in existing):
+                    # Add metadata to the label
+                    try:
+                        _df = pd.read_csv(csv_path, usecols=["tic_id"])
+                        n_targets = len(_df)
+                        label = f"Sector {sector_num} ({n_targets} targets)"
+                    except Exception:
+                        label = f"Sector {sector_num} (summary)"
+                    options.append({
+                        "label": label,
+                        "value": key,
+                    })
 
     return options
 
@@ -631,3 +637,193 @@ def register_callbacks(app: Dash) -> None:
             content=csv_buffer.getvalue(),
             filename="exohunter_candidates.csv",
         )
+
+    # ==================================================================
+    # Data Overview section callbacks
+    # ==================================================================
+
+    @app.callback(
+        Output("cache-stats-body", "children"),
+        Input("pipeline-data", "id"),
+    )
+    def update_cache_stats(_: str) -> list:
+        """Populate the cache statistics card."""
+        from exohunter.dashboard.overview import scan_cache_stats
+
+        stats = scan_cache_stats()
+        if stats["n_files"] == 0:
+            return [html.P("No cached light curves.", className="text-muted")]
+
+        items = [
+            html.H3(f"{stats['n_files']:,}", className="mb-0",
+                     style={"color": "deepskyblue"}),
+            html.P(f"cached targets ({stats['total_size_mb']:.0f} MB)",
+                   className="text-muted mb-2"),
+        ]
+        if stats["largest_files"]:
+            items.append(html.Small("Largest:", className="text-muted"))
+            for f in stats["largest_files"][:3]:
+                items.append(html.Div(
+                    f"{f['name']} — {f['size_mb']:.1f} MB",
+                    className="text-muted", style={"fontSize": "0.8rem"},
+                ))
+        return items
+
+    @app.callback(
+        Output("ml-status-body", "children"),
+        Input("pipeline-data", "id"),
+    )
+    def update_ml_status(_: str) -> list:
+        """Populate the ML model status card."""
+        from exohunter.dashboard.overview import scan_ml_status
+
+        status = scan_ml_status()
+        items = []
+
+        for name, key, color_yes in [
+            ("Random Forest", "rf", "info"),
+            ("CNN (PyTorch)", "cnn", "primary"),
+        ]:
+            available = status[f"{key}_available"]
+            size = status[f"{key}_size_kb"]
+            if available:
+                items.append(html.Div([
+                    dbc.Badge("Trained", color=color_yes, className="me-2"),
+                    html.Span(f"{name} ({size:.0f} KB)"),
+                ], className="mb-1"))
+            else:
+                items.append(html.Div([
+                    dbc.Badge("Not trained", color="secondary", className="me-2"),
+                    html.Span(name, className="text-muted"),
+                ], className="mb-1"))
+
+        return items
+
+    @app.callback(
+        Output("batch-results-body", "children"),
+        Input("pipeline-data", "id"),
+    )
+    def update_batch_results(_: str) -> list:
+        """Populate the batch results index card."""
+        from exohunter.dashboard.overview import scan_batch_results
+
+        results = scan_batch_results()
+        if not results:
+            return [html.P("No batch results found. Run run_batch.py to process a sector.",
+                           className="text-muted")]
+
+        rows = []
+        for r in results:
+            new_badge = ""
+            if r["n_new_candidate"] > 0:
+                new_badge = dbc.Badge(
+                    f"{r['n_new_candidate']} NEW",
+                    color="success", className="ms-1",
+                )
+
+            rows.append(html.Div([
+                html.Strong(f"Sector {r['sector']}"),
+                html.Span(f" — {r['n_targets']} targets, "
+                          f"{r['n_validated']} validated",
+                          className="text-muted"),
+                new_badge,
+                html.Br(),
+                html.Small(f"{r['date']} | {r['mode']}",
+                           className="text-muted"),
+            ], className="mb-2"))
+
+        return rows
+
+    @app.callback(
+        Output("reports-gallery-body", "children"),
+        Input("pipeline-data", "id"),
+    )
+    def update_reports_gallery(_: str) -> list:
+        """Populate the reports gallery card."""
+        from exohunter.dashboard.overview import scan_reports, load_report_as_base64
+
+        reports = scan_reports()
+        if not reports:
+            return [html.P(
+                "No diagnostic reports. Run inspect_candidate.py to generate one.",
+                className="text-muted",
+            )]
+
+        thumbnails = []
+        for r in reports:
+            img_src = load_report_as_base64(r["path"])
+            if img_src:
+                thumbnails.append(html.Div([
+                    html.Img(
+                        src=img_src,
+                        style={"width": "100%", "cursor": "pointer",
+                               "border": "1px solid #333", "borderRadius": "4px"},
+                        id={"type": "report-thumb", "index": r["path"]},
+                    ),
+                    html.Small(r["tic_id"], className="text-muted d-block text-center"),
+                ], className="d-inline-block", style={"width": "48%", "margin": "1%"}))
+
+        if not thumbnails:
+            return [html.P("Reports exist but could not be loaded.", className="text-muted")]
+
+        return thumbnails
+
+    @app.callback(
+        Output("report-modal", "is_open"),
+        Output("report-modal-title", "children"),
+        Output("report-modal-img", "src"),
+        Input({"type": "report-thumb", "index": dash.ALL}, "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def open_report_modal(n_clicks_list: list) -> tuple:
+        """Open the report modal when a thumbnail is clicked."""
+        from exohunter.dashboard.overview import load_report_as_base64
+
+        ctx = callback_context
+        if not ctx.triggered or not any(n_clicks_list):
+            return False, "", ""
+
+        prop_id = ctx.triggered[0]["prop_id"]
+        # Extract the path from the pattern-matching ID
+        try:
+            import json as _json
+            id_dict = _json.loads(prop_id.split(".")[0])
+            path = id_dict["index"]
+        except Exception:
+            return False, "", ""
+
+        img_src = load_report_as_base64(path)
+        tic_id = Path(path).stem.replace("TIC_", "TIC ")
+
+        return True, f"Diagnostic Report — {tic_id}", img_src or ""
+
+    @app.callback(
+        Output("alerts-feed-body", "children"),
+        Input("pipeline-data", "id"),
+    )
+    def update_alerts_feed(_: str) -> list:
+        """Populate the alerts feed card."""
+        from exohunter.dashboard.overview import scan_alerts
+
+        alerts = scan_alerts()
+        if not alerts:
+            return [html.P("No alerts yet. Alerts are triggered when a batch run "
+                           "discovers NEW_CANDIDATE entries with SNR >= 7.",
+                           className="text-muted")]
+
+        items = []
+        for a in alerts[:10]:  # show most recent 10
+            tics = ", ".join(a["candidates"][:3])
+            more = f" +{a['n_candidates'] - 3}" if a["n_candidates"] > 3 else ""
+
+            items.append(html.Div([
+                dbc.Badge(f"Sector {a['sector']}", color="warning", className="me-2"),
+                html.Strong(f"{a['n_candidates']} new candidate(s)"),
+                html.Br(),
+                html.Small(f"{tics}{more}", className="text-muted"),
+                html.Br(),
+                html.Small(a["timestamp"], style={"color": "gray", "fontSize": "0.75rem"}),
+            ], className="mb-2",
+               style={"borderLeft": "3px solid #00ff88", "paddingLeft": "8px"}))
+
+        return items

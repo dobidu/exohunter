@@ -168,6 +168,11 @@ The dashboard features:
 | **Multi-planet support** | Dropdown to switch between candidates for the same star |
 | **BLS periodogram** | Power vs. period with detected peak and harmonics marked |
 | **Odd-even comparison** | Overlaid odd/even transit curves with EB consistency check |
+| **Cache statistics** | Number of cached targets, total size, largest files |
+| **ML model status** | Shows which classifiers (RF/CNN) are trained and available |
+| **Batch results index** | All sector CSVs with target counts, dates, NEW_CANDIDATE badges |
+| **Reports gallery** | Thumbnail grid of diagnostic PNGs — click to expand full-size |
+| **Alerts feed** | Timeline of NEW_CANDIDATE alerts with candidate details |
 
 ### 3. Batch process an entire TESS sector
 

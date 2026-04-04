@@ -321,6 +321,69 @@ def make_candidate_table() -> dbc.Card:
     ], className="mb-3")
 
 
+def make_data_overview() -> html.Div:
+    """Create the Data Overview section with status cards.
+
+    Shows cache stats, batch results index, reports gallery,
+    alerts feed, and ML model status — all populated by callbacks.
+    """
+    return html.Div([
+        html.Hr(),
+        html.H4("Data Overview", className="text-center mb-3",
+                style={"color": "#ddd"}),
+
+        dbc.Row([
+            # Cache stats
+            dbc.Col(dbc.Card([
+                dbc.CardHeader("Cache Statistics"),
+                dbc.CardBody(id="cache-stats-body", children=[
+                    html.P("Scanning...", className="text-muted"),
+                ]),
+            ]), width=3),
+
+            # ML model status
+            dbc.Col(dbc.Card([
+                dbc.CardHeader("ML Model Status"),
+                dbc.CardBody(id="ml-status-body", children=[
+                    html.P("Checking...", className="text-muted"),
+                ]),
+            ]), width=3),
+
+            # Batch results index
+            dbc.Col(dbc.Card([
+                dbc.CardHeader("Batch Results"),
+                dbc.CardBody(id="batch-results-body", children=[
+                    html.P("Scanning...", className="text-muted"),
+                ]),
+            ]), width=6),
+        ], className="mb-3"),
+
+        dbc.Row([
+            # Reports gallery
+            dbc.Col(dbc.Card([
+                dbc.CardHeader("Diagnostic Reports"),
+                dbc.CardBody(id="reports-gallery-body", children=[
+                    html.P("Scanning...", className="text-muted"),
+                ]),
+            ]), width=6),
+
+            # Alerts feed
+            dbc.Col(dbc.Card([
+                dbc.CardHeader("Alerts Feed"),
+                dbc.CardBody(id="alerts-feed-body", children=[
+                    html.P("Scanning...", className="text-muted"),
+                ]),
+            ]), width=6),
+        ], className="mb-3"),
+
+        # Report image modal (opens when clicking a report thumbnail)
+        dbc.Modal([
+            dbc.ModalHeader(dbc.ModalTitle(id="report-modal-title")),
+            dbc.ModalBody(html.Img(id="report-modal-img", style={"width": "100%"})),
+        ], id="report-modal", size="xl", is_open=False),
+    ])
+
+
 def make_layout(pipeline_data: dict | None = None) -> dbc.Container:
     """Assemble the complete dashboard layout.
 
@@ -351,6 +414,11 @@ def make_layout(pipeline_data: dict | None = None) -> dbc.Container:
         # Candidate table (full width)
         dbc.Row([
             dbc.Col(make_candidate_table(), width=12),
+        ]),
+
+        # Data Overview section (cache, results, reports, alerts, ML status)
+        dbc.Row([
+            dbc.Col(make_data_overview(), width=12),
         ]),
 
     ], fluid=True)
