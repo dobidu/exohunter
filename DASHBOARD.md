@@ -80,7 +80,11 @@ and plots are not affected by filters — they show all loaded data.
 ### Panel 1 — Sky Map
 
 A scatter plot of all targets in Right Ascension / Declination
-coordinates. Color-coded by status:
+coordinates, with the ESO/S. Brunier Milky Way panorama as the
+background image. Marker sizes scale with transit depth (deeper
+transits produce larger circles), and important statuses have a
+neon glow effect. RA axis follows the astronomical convention
+(reversed, with hour-angle labels). Color-coded by status:
 
 | Color | Status |
 |-------|--------|

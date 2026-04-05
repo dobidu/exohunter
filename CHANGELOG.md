@@ -56,7 +56,8 @@ study group at UFPB (Universidade Federal da Paraiba).
 ### Dashboard
 
 - Plotly Dash with Bootstrap DARKLY theme
-- 5 visualization panels: sky map, light curve with transit windows,
+- 5 visualization panels: sky map (Milky Way photograph background,
+  depth-scaled markers, glow effects), light curve with transit windows,
   phase-folded diagram, BLS periodogram, odd-even transit comparison
 - Data source selector with auto-scan of batch results
 - New Candidates highlight panel (top 10 uncatalogued by score)
@@ -93,7 +94,7 @@ study group at UFPB (Universidade Federal da Paraiba).
 
 ### Testing
 
-- 200 tests across 13 test files, all running offline (no network)
+- 203 tests across 13 test files, all running offline (no network)
 - Covers: BLS (lightkurve + Numba CPU + GPU + iterative), cache roundtrip,
   catalog (scoring, ranking, crossmatch, staleness), classification
   (RF + CNN), dashboard (figures, layout, demo data), export

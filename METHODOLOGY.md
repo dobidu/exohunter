@@ -753,7 +753,7 @@ All configurable parameters are centralized in `exohunter/config.py`:
 - Synthetic light curves with known injected parameters
 - Deterministic random seeds for reproducibility
 
-### 9.2 Test coverage (200 tests)
+### 9.2 Test coverage (203 tests)
 
 | Module | Tests | What is verified |
 |--------|-------|-----------------|
@@ -762,14 +762,14 @@ All configurable parameters are centralized in `exohunter/config.py`:
 | `test_catalog.py` | 31 | Scoring formula, catalog CRUD, ranking, DataFrame, TIC parsing, 4-tier cross-match, batch, staleness check, source modes |
 | `test_classification.py` | 15 | Feature extraction, RF training on synthetic data, prediction validity, probability normalization, NaN handling, model persistence |
 | `test_cnn.py` | 12 | CNN architecture, forward pass, phase curve generation, training, predictions, probabilities, save/load, candidate conversion |
-| `test_dashboard.py` | 28 | Demo data schema, app creation, component IDs, all figure generators, layout builders, end-to-end pipeline |
+| `test_dashboard.py` | 28 | Demo data schema, app creation, component IDs, all figure generators (sky map background, depth scaling, glow), layout builders, end-to-end pipeline |
 | `test_export.py` | 13 | CSV/FITS/VOTable roundtrip, UCD metadata, units, empty catalog, default paths |
 | `test_alerts.py` | 15 | Filtering, payload construction, file output, webhook graceful failure, end-to-end dispatch |
 | `test_overview.py` | 11 | Cache/results/reports/alerts/ML scanners, base64 encoding, layout component IDs |
 | `test_model.py` | 14 | Transit model values, periodicity, symmetry, bounds, phase folding, binning |
 | `test_preprocessing.py` | 7 | Signal preservation, output fields, cadence retention, outlier removal, normalization, flatten variability |
 | `test_utils.py` | 8 | Logger, @timing decorator, thread pool order + exceptions, process pool order, empty input |
-| `test_validator.py` | 14 | All 6 criteria pass/fail, boundary cases, overall logic |
+| `test_validator.py` | 17 | All 6 criteria pass/fail, boundary cases, overall logic |
 | `test_gpu_bls.py` | 8 | GPU BLS fallback, period recovery, CPU/GPU agreement, availability flags, edge cases |
 
 ### 9.3 Synthetic data generation
@@ -800,7 +800,7 @@ git clone https://github.com/dobidu/exohunter.git
 cd exohunter
 python -m venv venv && source venv/bin/activate
 pip install -e ".[dev]"
-pytest                    # 200 tests, all offline
+pytest                    # 203 tests, all offline
 ```
 
 ### 10.2 Download the TOI catalog

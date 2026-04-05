@@ -6,7 +6,7 @@
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-200%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-203%20passed-brightgreen.svg)]()
 
 ---
 
@@ -106,7 +106,7 @@ source venv/bin/activate    # Linux / macOS
 # venv\Scripts\activate     # Windows (PowerShell)
 
 pip install -e ".[dev]"
-pytest                       # 200 tests, all offline
+pytest                       # 203 tests, all offline
 ```
 
 ### Download the TOI catalog (optional, for cross-matching)
@@ -391,7 +391,7 @@ the candidate score but do not reject the candidate outright.
 ## Running tests
 
 ```bash
-pytest                                          # 200 tests, all offline
+pytest                                          # 203 tests, all offline
 pytest -v                                       # verbose
 pytest --cov=exohunter --cov-report=term-missing  # with coverage
 pytest tests/test_bls.py -v                     # single module
