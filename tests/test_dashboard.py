@@ -190,7 +190,7 @@ class TestFigureGeneration:
     """Test that figure generators produce valid Plotly figures."""
 
     def test_sky_map_with_data(self) -> None:
-        """make_sky_map must return a Figure with traces."""
+        """make_sky_map must return an Aitoff-projected Figure with traces."""
         from exohunter.dashboard.figures import make_sky_map
 
         fig = make_sky_map(
@@ -200,8 +200,43 @@ class TestFigureGeneration:
             statuses=["processed", "validated", "rejected"],
         )
 
-        assert len(fig.data) >= 1
-        assert fig.layout.xaxis.title.text == "Right Ascension (°)"
+        # Must have Milky Way band + at least 1 target trace
+        assert len(fig.data) >= 2
+        # Must use Aitoff projection
+        assert fig.layout.geo.projection.type == "aitoff"
+
+    def test_sky_map_milky_way_present(self) -> None:
+        """Sky map must include a Milky Way band trace."""
+        from exohunter.dashboard.figures import make_sky_map
+
+        fig = make_sky_map(
+            ra=np.array([10.0]),
+            dec=np.array([0.0]),
+            tic_ids=["TIC X"],
+            statuses=["processed"],
+        )
+
+        trace_names = [t.name for t in fig.data if t.name]
+        assert "Milky Way" in trace_names
+
+    def test_sky_map_depth_scaling(self) -> None:
+        """Markers with deeper transits must be larger."""
+        from exohunter.dashboard.figures import make_sky_map
+
+        fig = make_sky_map(
+            ra=np.array([10.0, 20.0]),
+            dec=np.array([0.0, 0.0]),
+            tic_ids=["A", "B"],
+            statuses=["validated", "validated"],
+            depths=np.array([0.001, 0.02]),  # B is 20x deeper
+        )
+
+        # Find the validated trace (should have 2 markers)
+        for trace in fig.data:
+            if trace.name and "Validated" in trace.name:
+                sizes = trace.marker.size
+                assert sizes[1] > sizes[0], "Deeper transit should have larger marker"
+                break
 
     def test_lightcurve_plot_with_model(self) -> None:
         """make_lightcurve_plot must include model trace when candidate given."""

@@ -385,7 +385,20 @@ def register_callbacks(app: Dash) -> None:
         if all("tmag" in t for t in targets):
             magnitudes = np.array([t["tmag"] for t in targets])
 
-        return make_sky_map(ra, dec, tic_ids, statuses, magnitudes=magnitudes)
+        # Build a depth array for marker sizing: match each target's
+        # TIC ID to the maximum depth among its candidates.
+        candidates = pipeline_data.get("candidates", [])
+        depth_by_tic: dict[str, float] = {}
+        for c in candidates:
+            tic = c.get("tic_id", "")
+            d = c.get("depth", 0)
+            if d and d > depth_by_tic.get(tic, 0):
+                depth_by_tic[tic] = d
+
+        depths = np.array([depth_by_tic.get(tid, 0.0) for tid in tic_ids])
+
+        return make_sky_map(ra, dec, tic_ids, statuses,
+                           magnitudes=magnitudes, depths=depths)
 
     # ------------------------------------------------------------------
     # Target selection — from table click or sky map click.

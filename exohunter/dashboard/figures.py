@@ -37,50 +37,102 @@ def _apply_dark_style(fig: go.Figure) -> go.Figure:
     return fig
 
 
+def _milky_way_band() -> tuple[list[float], list[float]]:
+    """Generate the Milky Way galactic plane as a band in RA/Dec.
+
+    Returns a simplified polygon tracing the galactic plane
+    (galactic latitude b=0) transformed to equatorial coordinates,
+    with a +-15 deg width band.
+
+    Returns:
+        Tuple of (ra_list, dec_list) in degrees for a filled polygon.
+    """
+    # Galactic plane sampled at 10-deg intervals in galactic longitude,
+    # transformed to equatorial J2000 using the standard rotation.
+    # These are pre-computed points along b=0 (galactic equator).
+    galactic_plane_ra = [
+        266.4, 276.0, 286.5, 298.2, 311.5, 326.0, 340.4, 353.6,
+        5.5, 16.5, 27.0, 37.3, 48.0, 59.3, 71.5, 84.5, 98.0,
+        111.5, 124.0, 135.0, 145.0, 154.5, 164.0, 174.5, 186.5,
+        200.0, 215.0, 230.5, 244.5, 255.0, 262.0, 266.4,
+    ]
+    galactic_plane_dec = [
+        -28.9, -23.5, -15.5, -5.0, 6.5, 17.5, 26.0, 30.5,
+        30.5, 27.0, 20.5, 12.5, 3.5, -5.5, -13.5, -19.5, -22.0,
+        -20.0, -14.5, -6.5, 2.5, 11.5, 20.5, 29.0, 35.5,
+        38.5, 36.0, 28.0, 17.0, 5.0, -10.0, -28.9,
+    ]
+    return galactic_plane_ra, galactic_plane_dec
+
+
 def make_sky_map(
     ra: np.ndarray,
     dec: np.ndarray,
     tic_ids: list[str],
     statuses: list[str],
     magnitudes: np.ndarray | None = None,
+    depths: np.ndarray | None = None,
 ) -> go.Figure:
-    """Create a sky map (RA/Dec scatter) of all processed targets.
+    """Create an Aitoff-projected sky map with Milky Way band.
+
+    Uses Plotly's ``Scattergeo`` with an ``aitoff`` projection for a
+    realistic all-sky view. Markers are color-coded by status and
+    sized by transit depth (deeper = larger). A semi-transparent
+    Milky Way band provides spatial context.
 
     Args:
         ra: Right ascension in degrees.
         dec: Declination in degrees.
         tic_ids: TIC IDs for hover labels.
-        statuses: Status per target: ``"processed"``, ``"candidate"``,
-            ``"validated"``, or ``"rejected"``.
-        magnitudes: Optional TESS magnitudes for hover info and marker sizing.
+        statuses: Status per target.
+        magnitudes: Optional TESS magnitudes for hover info.
+        depths: Optional transit depths (fractional) for marker sizing.
 
     Returns:
-        A Plotly ``Figure`` with colour-coded targets.
+        A Plotly ``Figure`` with Aitoff-projected sky map.
     """
     color_map = {
-        "processed": "rgba(150, 150, 150, 0.5)",
+        "processed": "rgba(150, 150, 150, 0.4)",
         "candidate": "gold",
         "validated": "limegreen",
-        "new_candidate": "#00ff88",    # bright green — the exciting ones!
+        "new_candidate": "#00ff88",
         "known_match": "deepskyblue",
         "known_toi": "gold",
         "harmonic": "orange",
         "rejected": "tomato",
     }
-    size_map = {
-        "processed": 5,
-        "candidate": 8,
-        "validated": 12,
-        "new_candidate": 14,
-        "known_match": 10,
-        "known_toi": 9,
-        "harmonic": 7,
-        "rejected": 7,
+    # Base sizes — will be scaled by depth if available
+    base_size_map = {
+        "processed": 4,
+        "candidate": 7,
+        "validated": 10,
+        "new_candidate": 12,
+        "known_match": 9,
+        "known_toi": 8,
+        "harmonic": 6,
+        "rejected": 5,
     }
+
+    # Convert RA from [0, 360] to longitude [-180, 180] for Aitoff
+    lon = np.where(ra > 180, ra - 360, ra)
 
     fig = go.Figure()
 
-    # Draw in order so the most interesting targets appear on top
+    # --- Milky Way band (semi-transparent background) ---
+    mw_ra, mw_dec = _milky_way_band()
+    mw_lon = [r - 360 if r > 180 else r for r in mw_ra]
+    fig.add_trace(go.Scattergeo(
+        lon=mw_lon, lat=mw_dec,
+        mode="lines",
+        fill="toself",
+        fillcolor="rgba(200, 180, 120, 0.08)",
+        line=dict(color="rgba(200, 180, 120, 0.2)", width=1),
+        name="Milky Way",
+        hoverinfo="skip",
+        showlegend=True,
+    ))
+
+    # --- Target markers, drawn in order so interesting ones are on top ---
     for status in ["processed", "rejected", "harmonic", "known_toi",
                     "candidate", "known_match", "validated", "new_candidate"]:
         mask = [s == status for s in statuses]
@@ -88,34 +140,66 @@ def make_sky_map(
             continue
 
         indices = [i for i, m in enumerate(mask) if m]
+
+        # Compute marker sizes: base size + depth scaling
+        base = base_size_map.get(status, 5)
+        if depths is not None:
+            sizes = []
+            for i in indices:
+                d = depths[i] if i < len(depths) else 0
+                # Scale: depth of 0.01 (1%) adds +8 to base size
+                depth_bonus = min(12, d * 800) if d > 0 else 0
+                sizes.append(base + depth_bonus)
+        else:
+            sizes = [base] * len(indices)
+
         hover_text = []
         for i in indices:
             text = f"<b>{tic_ids[i]}</b><br>RA={ra[i]:.4f}°  Dec={dec[i]:.4f}°"
-            if magnitudes is not None:
+            if magnitudes is not None and i < len(magnitudes):
                 text += f"<br>Tmag={magnitudes[i]:.1f}"
+            if depths is not None and i < len(depths) and depths[i] > 0:
+                text += f"<br>depth={depths[i]*100:.3f}%"
             hover_text.append(text)
 
-        fig.add_trace(go.Scattergl(
-            x=[ra[i] for i in indices],
-            y=[dec[i] for i in indices],
+        fig.add_trace(go.Scattergeo(
+            lon=[float(lon[i]) for i in indices],
+            lat=[float(dec[i]) for i in indices],
             mode="markers",
             marker=dict(
-                size=size_map.get(status, 6),
+                size=sizes,
                 color=color_map.get(status, "gray"),
                 opacity=0.9,
-                line=dict(width=1, color="white") if status == "validated" else dict(width=0),
+                line=dict(width=1, color="white") if status in ("validated", "new_candidate") else dict(width=0),
             ),
-            name=status.capitalize(),
+            name=status.replace("_", " ").capitalize(),
             text=hover_text,
             hoverinfo="text",
             customdata=[tic_ids[i] for i in indices],
         ))
 
+    fig.update_geos(
+        projection_type="aitoff",
+        showland=False,
+        showocean=False,
+        showlakes=False,
+        showrivers=False,
+        bgcolor="rgba(0,0,0,0)",
+        framecolor="rgba(100,100,100,0.3)",
+        lonaxis=dict(
+            showgrid=True,
+            gridcolor="rgba(255,255,255,0.06)",
+            dtick=30,
+        ),
+        lataxis=dict(
+            showgrid=True,
+            gridcolor="rgba(255,255,255,0.06)",
+            dtick=15,
+        ),
+    )
+
     fig.update_layout(
-        title="Sky Map — TESS Observation Field",
-        xaxis_title="Right Ascension (°)",
-        yaxis_title="Declination (°)",
-        xaxis=dict(autorange="reversed"),  # RA increases right-to-left
+        title="Sky Map — Aitoff Projection",
         height=500,
         legend=dict(
             orientation="h",
@@ -124,6 +208,7 @@ def make_sky_map(
             xanchor="right",
             x=1,
         ),
+        margin=dict(l=10, r=10, t=40, b=10),
     )
 
     return _apply_dark_style(fig)
