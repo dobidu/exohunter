@@ -190,10 +190,14 @@ def make_sky_map(
     # --- Layout with sky background image ---
     images_list = []
     if _SKY_BG_URI:
+        # The RA axis is reversed (360 on the left, 0 on the right).
+        # Plotly's layout.images uses xref="x" with the image anchored
+        # at its top-left corner.  With reversed axis, the left edge
+        # of the plot is RA=360, so the image must start there.
         images_list.append(dict(
             source=_SKY_BG_URI,
             xref="x", yref="y",
-            x=0, y=90,
+            x=360, y=90,
             sizex=360, sizey=180,
             sizing="stretch",
             opacity=0.5,
