@@ -126,7 +126,34 @@ def make_sky_map(
 
     fig = go.Figure()
 
-    # --- Target markers, drawn in order (least to most interesting) ---
+    # --- Glow layers FIRST (below everything, won't intercept clicks) ---
+    for status in ["candidate", "known_match", "validated", "new_candidate"]:
+        if status not in glow_map:
+            continue
+        mask = [s == status for s in statuses]
+        if not any(mask):
+            continue
+
+        indices = [i for i, m in enumerate(mask) if m]
+        base = base_size_map.get(status, 5)
+
+        if depths is not None:
+            sizes = [base + min(14, (depths[i] if i < len(depths) else 0) * 1000)
+                     for i in indices]
+        else:
+            sizes = [base] * len(indices)
+
+        glow_sizes = [s * 2.5 for s in sizes]
+        fig.add_trace(go.Scattergl(
+            x=[float(ra[i]) for i in indices],
+            y=[float(dec[i]) for i in indices],
+            mode="markers",
+            marker=dict(size=glow_sizes, color=glow_map[status], line=dict(width=0)),
+            showlegend=False,
+            hoverinfo="skip",
+        ))
+
+    # --- Main markers on top (clickable, with customdata) ---
     for status in ["processed", "rejected", "harmonic", "known_toi",
                     "candidate", "known_match", "validated", "new_candidate"]:
         mask = [s == status for s in statuses]
@@ -136,13 +163,9 @@ def make_sky_map(
         indices = [i for i, m in enumerate(mask) if m]
         base = base_size_map.get(status, 5)
 
-        # Depth-scaled marker sizes
         if depths is not None:
-            sizes = []
-            for i in indices:
-                d = depths[i] if i < len(depths) else 0
-                depth_bonus = min(14, d * 1000) if d > 0 else 0
-                sizes.append(base + depth_bonus)
+            sizes = [base + min(14, (depths[i] if i < len(depths) else 0) * 1000)
+                     for i in indices]
         else:
             sizes = [base] * len(indices)
 
@@ -155,26 +178,10 @@ def make_sky_map(
                 text += f"<br>depth={depths[i]*100:.3f}%"
             hover_text.append(text)
 
-        x_vals = [float(ra[i]) for i in indices]
-        y_vals = [float(dec[i]) for i in indices]
-
-        # Glow layer (larger, semi-transparent) for important statuses
-        if status in glow_map:
-            glow_sizes = [s * 2.5 for s in sizes]
-            fig.add_trace(go.Scatter(
-                x=x_vals, y=y_vals, mode="markers",
-                marker=dict(
-                    size=glow_sizes,
-                    color=glow_map[status],
-                    line=dict(width=0),
-                ),
-                showlegend=False,
-                hoverinfo="skip",
-            ))
-
-        # Main marker layer
-        fig.add_trace(go.Scatter(
-            x=x_vals, y=y_vals, mode="markers",
+        fig.add_trace(go.Scattergl(
+            x=[float(ra[i]) for i in indices],
+            y=[float(dec[i]) for i in indices],
+            mode="markers",
             marker=dict(
                 size=sizes,
                 color=color_map.get(status, "gray"),
@@ -190,21 +197,16 @@ def make_sky_map(
     # --- Layout with sky background image ---
     images_list = []
     if _SKY_BG_URI:
-        # The RA axis is reversed (360 on the left, 0 on the right).
-        # Plotly's layout.images uses xref="x" with the image anchored
-        # at its top-left corner.  With reversed axis, the left edge
-        # of the plot is RA=360, so the image must start there.
         images_list.append(dict(
             source=_SKY_BG_URI,
             xref="x", yref="y",
             x=360, y=90,
             sizex=360, sizey=180,
             sizing="stretch",
-            opacity=0.5,
+            opacity=0.45,
             layer="below",
         ))
 
-    # RA axis labels in hour angles (reversed: 24h on left, 0h on right)
     ra_ticks = list(range(0, 361, 30))
     ra_labels = [f"{int(v/15)}h" for v in ra_ticks]
 
@@ -212,7 +214,7 @@ def make_sky_map(
         title="Sky Map",
         xaxis=dict(
             title="Right Ascension",
-            range=[360, 0],  # reversed (astronomical convention)
+            range=[360, 0],
             tickvals=ra_ticks,
             ticktext=ra_labels,
             gridcolor="rgba(255,255,255,0.05)",
@@ -226,8 +228,6 @@ def make_sky_map(
             gridcolor="rgba(255,255,255,0.05)",
             showgrid=True,
             zeroline=False,
-            scaleanchor="x",
-            scaleratio=1,
         ),
         images=images_list,
         height=500,
