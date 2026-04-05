@@ -190,7 +190,7 @@ class TestFigureGeneration:
     """Test that figure generators produce valid Plotly figures."""
 
     def test_sky_map_with_data(self) -> None:
-        """make_sky_map must return an Aitoff-projected Figure with traces."""
+        """make_sky_map must return a Figure with target traces."""
         from exohunter.dashboard.figures import make_sky_map
 
         fig = make_sky_map(
@@ -200,14 +200,15 @@ class TestFigureGeneration:
             statuses=["processed", "validated", "rejected"],
         )
 
-        # Must have Milky Way band + at least 1 target trace
-        assert len(fig.data) >= 2
-        # Must use Aitoff projection
-        assert fig.layout.geo.projection.type == "aitoff"
+        # Must have at least 1 target trace
+        assert len(fig.data) >= 1
+        # RA axis must be reversed (astronomical convention)
+        ra_range = fig.layout.xaxis.range
+        assert ra_range[0] > ra_range[1], "RA axis must be reversed"
 
-    def test_sky_map_milky_way_present(self) -> None:
-        """Sky map must include a Milky Way band trace."""
-        from exohunter.dashboard.figures import make_sky_map
+    def test_sky_map_background_image(self) -> None:
+        """Sky map should have a background image if available."""
+        from exohunter.dashboard.figures import make_sky_map, _SKY_BG_URI
 
         fig = make_sky_map(
             ra=np.array([10.0]),
@@ -216,8 +217,9 @@ class TestFigureGeneration:
             statuses=["processed"],
         )
 
-        trace_names = [t.name for t in fig.data if t.name]
-        assert "Milky Way" in trace_names
+        if _SKY_BG_URI:
+            assert len(fig.layout.images) >= 1, "Background image not applied"
+        # If no image file, the map still works (graceful degradation)
 
     def test_sky_map_depth_scaling(self) -> None:
         """Markers with deeper transits must be larger."""
@@ -231,12 +233,26 @@ class TestFigureGeneration:
             depths=np.array([0.001, 0.02]),  # B is 20x deeper
         )
 
-        # Find the validated trace (should have 2 markers)
+        # Find the validated trace with marker data (skip glow layers)
         for trace in fig.data:
             if trace.name and "Validated" in trace.name:
                 sizes = trace.marker.size
                 assert sizes[1] > sizes[0], "Deeper transit should have larger marker"
                 break
+
+    def test_sky_map_glow_effect(self) -> None:
+        """Important statuses should have glow layers (extra traces)."""
+        from exohunter.dashboard.figures import make_sky_map
+
+        fig = make_sky_map(
+            ra=np.array([10.0]),
+            dec=np.array([0.0]),
+            tic_ids=["TIC X"],
+            statuses=["new_candidate"],
+        )
+
+        # new_candidate should produce 2 traces: glow + main marker
+        assert len(fig.data) >= 2, "Glow layer missing for new_candidate"
 
     def test_lightcurve_plot_with_model(self) -> None:
         """make_lightcurve_plot must include model trace when candidate given."""
